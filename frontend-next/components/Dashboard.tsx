@@ -3,7 +3,7 @@
 import { ChangeEvent, useEffect, useMemo, useState } from 'react';
 import RecommendationBadge from './RecommendationBadge';
 import StockCharts from './StockCharts';
-import { AnalysisResponse, StockResult, exportAnalysis, requestAnalysis } from '../lib/api';
+import { AnalysisResponse, StockResult, exportAnalysis, requestAnalysis, getApiBase } from '../lib/api';
 
 type PriceAlertDirection = 'above' | 'below';
 
@@ -183,16 +183,20 @@ export default function Dashboard() {
       return;
     }
 
-    // Fetch full article dari backend
+    // Fetch full article dari backend dengan API base yang benar
     setLoadingArticle(true);
     try {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error('Failed to fetch article');
+      const apiBase = getApiBase();
+      const fullUrl = `${apiBase}${url}`;
+      console.log('Fetching article from:', fullUrl);
+      
+      const response = await fetch(fullUrl);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const article = await response.json();
       setSelectedArticle(article);
     } catch (err) {
       console.error('Error fetching article:', err);
-      alert('Gagal membuka artikel');
+      alert('Gagal membuka artikel: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
       setLoadingArticle(false);
     }

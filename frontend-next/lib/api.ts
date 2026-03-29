@@ -150,7 +150,7 @@ export type AnalysisResponse = {
 };
 
 // Lazily compute API base URL (evaluated at request time, not module load time)
-function getApiBase(): string {
+export function getApiBase(): string {
   // If explicitly set in env, use it
   if (process.env.NEXT_PUBLIC_API_BASE) {
     return process.env.NEXT_PUBLIC_API_BASE;
