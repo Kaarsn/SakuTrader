@@ -36,6 +36,9 @@ def analyze_stock(payload: AnalyzeRequest):
                     "macd": float(row["macd"]),
                     "macdSignal": float(row["macd_signal"]),
                     "macdHist": float(row["macd_hist"]),
+                    "bbUpper": float(row["bb_upper"]),
+                    "bbMiddle": float(row["bb_middle"]),
+                    "bbLower": float(row["bb_lower"]),
                 }
             )
 
@@ -47,6 +50,9 @@ def analyze_stock(payload: AnalyzeRequest):
                 "macdSignal": float(last["macd_signal"]),
                 "ma20": float(last["ma20"]),
                 "ma50": float(last["ma50"]),
+                "bbUpper": float(last["bb_upper"]),
+                "bbMiddle": float(last["bb_middle"]),
+                "bbLower": float(last["bb_lower"]),
             },
             "signals": build_signals(calculated),
             "candles": candles,

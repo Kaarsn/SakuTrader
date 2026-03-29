@@ -57,6 +57,36 @@ export default function StockCharts({ candles, ticker, dark }: Props) {
     opacity: 0.85
   };
 
+  const bbUpper = {
+    x: times,
+    y: candles.map((c) => c.bbUpper),
+    type: 'scatter',
+    mode: 'lines',
+    name: 'BB Upper',
+    line: { color: '#c084fc', width: 1, dash: 'dash' },
+    opacity: 0.7
+  };
+
+  const bbMiddle = {
+    x: times,
+    y: candles.map((c) => c.bbMiddle),
+    type: 'scatter',
+    mode: 'lines',
+    name: 'BB Middle',
+    line: { color: '#a78bfa', width: 1 },
+    opacity: 0.6
+  };
+
+  const bbLower = {
+    x: times,
+    y: candles.map((c) => c.bbLower),
+    type: 'scatter',
+    mode: 'lines',
+    name: 'BB Lower',
+    line: { color: '#c084fc', width: 1, dash: 'dash' },
+    opacity: 0.7
+  };
+
   const rsi = {
     x: times,
     y: candles.map((c) => c.rsi),
@@ -110,8 +140,8 @@ export default function StockCharts({ candles, ticker, dark }: Props) {
   return (
     <div className="grid" style={{ gap: 12 }}>
       <Plot
-        data={[candlestick, ma50, ma20]}
-        layout={{ ...layoutBase, title: `${ticker} Candlestick + MA` }}
+        data={[candlestick, bbUpper, bbMiddle, bbLower, ma50, ma20]}
+        layout={{ ...layoutBase, title: `${ticker} Candlestick + MA + Bollinger Bands` }}
         useResizeHandler
         style={{ width: '100%', height: 260 }}
       />

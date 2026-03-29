@@ -776,6 +776,18 @@ export default function Dashboard() {
                   <p>Trend: {selectedStock.technical.signals.trendSignal}</p>
                   <p>Trade Conclusion: <strong className={selectedStock.tradeConclusion === 'GOOD' ? 'good' : 'bad'}>{selectedStock.tradeConclusion}</strong></p>
 
+                  <h2>Volume & Bollinger Bands</h2>
+                  <p>Volume Ratio: <strong>{selectedStock.technical.signals.volumeRatio ?? '-'}</strong> {selectedStock.technical.signals.volumeStrong === 'yes' ? '🔥 Strong' : '📊 Normal'}</p>
+                  <p>BB Squeeze Status: <strong className={selectedStock.technical.signals.bbSqueeze === 'squeeze' ? 'warn' : 'good'}>{selectedStock.technical.signals.bbSqueeze ?? 'normal'}</strong></p>
+                  <p>Price Position: <strong>{
+                    selectedStock.technical.signals.bbPosition === 'above_upper' ? '📈 Above Upper (Overbought)' :
+                    selectedStock.technical.signals.bbPosition === 'below_lower' ? '📉 Below Lower (Oversold)' :
+                    'Inside Bands (Normal)'
+                  }</strong></p>
+                  <p>BB Upper: {formatNumber(selectedStock.technical.indicators.bbUpper)}</p>
+                  <p>BB Middle: {formatNumber(selectedStock.technical.indicators.bbMiddle)}</p>
+                  <p>BB Lower: {formatNumber(selectedStock.technical.indicators.bbLower)}</p>
+
                   <h2>Multi-Period Technical Summary</h2>
                   {selectedStock.multiTimeframeTechnical ? (
                     <div className="comparison-table-scroll">

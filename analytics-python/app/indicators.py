@@ -1,23 +1,42 @@
 import pandas as pd
 from ta.momentum import RSIIndicator
 from ta.trend import MACD
+import numpy as np
 
 
 def calculate_indicators(df: pd.DataFrame):
     result = df.copy()
-    result["ma20"] = result["Close"].rolling(window=20, min_periods=1).mean()
-    result["ma50"] = result["Close"].rolling(window=50, min_periods=1).mean()
+    
+    # Moving Averages
+    result.loc[:, "ma20"] = result["Close"].rolling(window=20, min_periods=1).mean()
+    result.loc[:, "ma50"] = result["Close"].rolling(window=50, min_periods=1).mean()
 
+    # RSI
     rsi = RSIIndicator(close=result["Close"], window=14, fillna=True)
-    result["rsi"] = rsi.rsi()
+    result.loc[:, "rsi"] = rsi.rsi()
 
+    # MACD
     macd = MACD(close=result["Close"], window_slow=26, window_fast=12, window_sign=9, fillna=True)
-    result["macd"] = macd.macd()
-    result["macd_signal"] = macd.macd_signal()
-    result["macd_hist"] = macd.macd_diff()
+    result.loc[:, "macd"] = macd.macd()
+    result.loc[:, "macd_signal"] = macd.macd_signal()
+    result.loc[:, "macd_hist"] = macd.macd_diff()
 
-    result = result.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
-    result[["rsi", "macd", "macd_signal", "macd_hist"]] = result[["rsi", "macd", "macd_signal", "macd_hist"]].fillna(0.0)
+    # Bollinger Bands (20, 2 std dev)
+    bb_middle_vals = result["Close"].rolling(window=20, min_periods=1).mean()
+    bb_std_vals = result["Close"].rolling(window=20, min_periods=1).std().fillna(0)
+    result.loc[:, "bb_middle"] = bb_middle_vals
+    result.loc[:, "bb_upper"] = bb_middle_vals + (bb_std_vals * 2)
+    result.loc[:, "bb_lower"] = bb_middle_vals - (bb_std_vals * 2)
+    result.loc[:, "bb_width"] = result["bb_upper"] - result["bb_lower"]
+
+    # Volume Analysis
+    result.loc[:, "volume_ma"] = result["Volume"].rolling(window=20, min_periods=1).mean()
+    result.loc[:, "volume_ratio"] = result["Volume"] / result["volume_ma"]
+
+    # Fill NaN values
+    result = result.fillna(0.0)
+    result = result.dropna(subset=["Open", "High", "Low", "Close", "Volume"], how="any")
+    
     if result.empty:
         raise ValueError("Not enough data to compute indicators")
 
@@ -25,6 +44,9 @@ def calculate_indicators(df: pd.DataFrame):
 
 
 def build_signals(calculated_df: pd.DataFrame):
+    if len(calculated_df)< 1:
+        raise ValueError("Not enough data for signal building")
+        
     last_row = calculated_df.iloc[-1]
     prev_row = calculated_df.iloc[-2] if len(calculated_df) > 1 else last_row
 
@@ -36,6 +58,15 @@ def build_signals(calculated_df: pd.DataFrame):
     prev_ma50 = float(prev_row["ma50"])
     macd = float(last_row["macd"])
     macd_signal = float(last_row["macd_signal"])
+    
+    # Bollinger Bands
+    bb_upper = float(last_row["bb_upper"])
+    bb_middle = float(last_row["bb_middle"])
+    bb_lower = float(last_row["bb_lower"])
+    bb_width = float(last_row["bb_width"])
+    
+    # Volume
+    volume_ratio = float(last_row["volume_ratio"])
 
     if rsi_value > 70:
         rsi_signal = "overbought"
@@ -46,6 +77,30 @@ def build_signals(calculated_df: pd.DataFrame):
 
     trend_signal = "uptrend" if close > ma20 else "downtrend"
     macd_signal_name = "bullish" if macd > macd_signal else "bearish"
+
+    # Volume confirmation (volume spike = strong move)
+    volume_strong = "yes" if volume_ratio > 1.5 else "no"
+    
+    # Bollinger Band squeeze (volume breakout setup alert)
+    try:
+        bb_width_history = calculated_df["bb_width"].dropna()
+        if len(bb_width_history) > 50:
+            avg_bb_width = bb_width_history.tail(50).mean()
+        elif len(bb_width_history) > 0:
+            avg_bb_width = bb_width_history.mean()
+        else:
+            avg_bb_width = bb_width
+        squeeze_status = "squeeze" if bb_width < (avg_bb_width * 0.5) else "normal"
+    except:
+        squeeze_status = "normal"
+    
+    # Price position in Bollinger Bands
+    if close > bb_upper:
+        bb_position = "above_upper"
+    elif close < bb_lower:
+        bb_position = "below_lower"
+    else:
+        bb_position = "inside"
 
     crossed_up = prev_ma20 <= prev_ma50 and ma20 > ma50
     crossed_down = prev_ma20 >= prev_ma50 and ma20 < ma50
@@ -73,4 +128,8 @@ def build_signals(calculated_df: pd.DataFrame):
         "crossSignal": cross_signal,
         "crossConclusion": cross_conclusion,
         "crossTrend": cross_trend,
+        "volumeStrong": volume_strong,
+        "bbSqueeze": squeeze_status,
+        "bbPosition": bb_position,
+        "volumeRatio": round(volume_ratio, 2),
     }

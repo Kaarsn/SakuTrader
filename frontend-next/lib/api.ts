@@ -11,6 +11,9 @@ export type Candle = {
   macd: number;
   macdSignal: number;
   macdHist: number;
+  bbUpper: number;
+  bbMiddle: number;
+  bbLower: number;
 };
 
 export type MultiTimeframeSnapshot = {
@@ -22,6 +25,9 @@ export type MultiTimeframeSnapshot = {
     macdSignal: number;
     ma20: number;
     ma50: number;
+    bbUpper?: number;
+    bbMiddle?: number;
+    bbLower?: number;
   };
   signals?: {
     rsiSignal: string;
@@ -30,6 +36,10 @@ export type MultiTimeframeSnapshot = {
     crossSignal?: 'golden_cross' | 'death_cross' | 'none';
     crossConclusion?: 'bullish' | 'bearish' | 'neutral';
     crossTrend?: 'bullish' | 'bearish' | 'neutral';
+    volumeStrong?: string;
+    bbSqueeze?: string;
+    bbPosition?: string;
+    volumeRatio?: number;
   };
   indicatorStatus?: {
     rsi: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
@@ -62,6 +72,9 @@ export type StockResult = {
       macdSignal: number;
       ma20: number;
       ma50: number;
+      bbUpper: number;
+      bbMiddle: number;
+      bbLower: number;
     };
     signals: {
       rsiSignal: string;
@@ -70,6 +83,10 @@ export type StockResult = {
       crossSignal?: 'golden_cross' | 'death_cross' | 'none';
       crossConclusion?: 'bullish' | 'bearish' | 'neutral';
       crossTrend?: 'bullish' | 'bearish' | 'neutral';
+      volumeStrong?: string;
+      bbSqueeze?: string;
+      bbPosition?: string;
+      volumeRatio?: number;
     };
     candles: Candle[];
   };
