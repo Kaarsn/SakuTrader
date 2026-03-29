@@ -1,0 +1,13 @@
+directories:
+  output: dist
+  buildResources: build
+appId: com.stockai.desktop
+productName: IDX AI Analyst
+win:
+  target:
+    - portable
+files:
+  - filter:
+      - main.js
+      - package.json
+electronVersion: 31.7.7

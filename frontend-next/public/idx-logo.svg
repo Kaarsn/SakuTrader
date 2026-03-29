@@ -1,0 +1,24 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="24" y1="24" x2="232" y2="232" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F4C5C"/>
+      <stop offset="1" stop-color="#2C7A7B"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="68" y1="60" x2="184" y2="196" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F6F2E6"/>
+      <stop offset="1" stop-color="#D5E7E9"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="12" y="12" width="232" height="232" rx="48" fill="url(#bg)"/>
+  <rect x="12" y="12" width="232" height="232" rx="48" stroke="#EAF4F5" stroke-opacity="0.35" stroke-width="4"/>
+
+  <path d="M67 73H186V95H95V119H170V141H95V183H67V73Z" fill="url(#shine)"/>
+  <path d="M116 157H191V183H116V157Z" fill="#7BE0D6"/>
+  <path d="M151 95H191V121H151V95Z" fill="#7BE0D6"/>
+
+  <circle cx="72" cy="53" r="6" fill="#86E9DF" fill-opacity="0.75"/>
+  <circle cx="90" cy="53" r="6" fill="#86E9DF" fill-opacity="0.55"/>
+
+  <text x="128" y="222" text-anchor="middle" fill="#DDF3F5" font-family="'Space Mono', monospace" font-size="18" letter-spacing="1.5">SAKUTRADER</text>
+</svg>

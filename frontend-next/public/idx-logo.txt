@@ -1,0 +1,2 @@
+Place your SakuTrader logo image here as: idx-logo.png
+Recommended size: 256x256 with transparent background.
