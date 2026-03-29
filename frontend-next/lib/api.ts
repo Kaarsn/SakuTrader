@@ -103,6 +103,8 @@ export type StockResult = {
     source: string;
     summary: string;
     url?: string;
+    sentiment?: string;
+    isFallback?: boolean;
   }[];
   aiInsight: string;
   sentiment: string;

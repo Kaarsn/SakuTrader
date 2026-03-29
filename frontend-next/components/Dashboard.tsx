@@ -881,17 +881,37 @@ export default function Dashboard() {
                   <p>Sentiment: {selectedStock.sentiment}</p>
                   <p>{selectedStock.aiInsight}</p>
 
-                  <h2>News</h2>
+                  <h2>📰 Berita Terkini & Sentiment</h2>
                   {selectedStock.news.length ? (
-                    selectedStock.news.slice(0, 5).map((news) => (
-                      <div className="news-item" key={`${news.title}-${news.source}`}>
-                        <h4>{news.title}</h4>
-                        <p>{news.source}</p>
-                        <p>{news.summary}</p>
-                      </div>
-                    ))
+                    <div className="news-container">
+                      {selectedStock.news.slice(0, 8).map((news, idx) => (
+                        <div className="news-item" key={`${news.title}-${news.source}-${idx}`}>
+                          <div className="news-header">
+                            <h4>{news.title}</h4>
+                            <span className={`sentiment-badge ${(news.sentiment || 'neutral').toLowerCase()}`}>
+                              {
+                                news.sentiment === 'positif' ? '📈 Positif' :
+                                news.sentiment === 'optimis' ? '📊 Optimis' :
+                                news.sentiment === 'negatif' ? '📉 Negatif' :
+                                'Neutral'
+                              }
+                            </span>
+                          </div>
+                          <div className="news-meta">
+                            <span className="source">🏢 {news.source}</span>
+                            {news.isFallback ? <span className="fallback-badge">Generated</span> : null}
+                          </div>
+                          <p className="news-summary">{news.summary}</p>
+                          {news.url && !news.isFallback ? (
+                            <a href={news.url} target="_blank" rel="noopener noreferrer" className="news-link">
+                              Baca Selengkapnya →
+                            </a>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
                   ) : (
-                    <p>No recent related news found for this ticker right now.</p>
+                    <p className="no-news">📭 Belum ada berita terkait ditemukan untuk ticker ini.</p>
                   )}
                 </article>
               </section>
