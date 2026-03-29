@@ -2,6 +2,9 @@ import axios from 'axios';
 import { parseStringPromise } from 'xml2js';
 import * as cheerio from 'cheerio';
 
+// In-memory storage untuk articles (untuk read endpoint)
+const articleStorage = new Map();
+
 const COMPANY_ALIASES = {
   BBRI: ['Bank Rakyat Indonesia', 'BRI', 'BBRI.JK'],
   TLKM: ['Telkom Indonesia', 'PT Telkom Indonesia', 'TLKM.JK'],
@@ -319,59 +322,147 @@ function getFallbackNews(ticker) {
   const aliases = COMPANY_ALIASES[symbol] || [];
   const companyName = aliases[0] || symbol;
   
-  // Extended news templates with various themes
+  // Extended news templates with full article content
   const newsTemplates = [
     // Positive news
     {
       title: `${companyName} Catat Laporan Keuangan Solid di Q1 2026`,
-      summary: `${companyName} melaporkan pencapaian yang impresif dengan peningkatan pendapatan sebesar 15% dibanding periode lalu. Pertumbuhan ini didukung oleh ekspansi pasar dan peningkatan efisiensi operasional di semua divisi bisnis.`,
+      summary: `${companyName} melaporkan pencapaian yang impresif dengan peningkatan pendapatan sebesar 15% dibanding periode lalu.`,
+      content: `${companyName} melaporkan pencapaian yang impresif dengan peningkatan pendapatan sebesar 15% dibanding periode lalu. Pertumbuhan ini didukung oleh ekspansi pasar dan peningkatan efisiensi operasional di semua divisi bisnis.
+
+Laporan keuangan kuartal pertama 2026 menunjukkan peningkatan signifikan di semua lini bisnis. Revenue operasional mencapai rekor tertinggi dengan dukungan dari segmen retail, corporate, dan institutional.
+
+Direktur Utama ${companyName} menyatakan optimismenya terhadap prospek bisnis di kuartal-kuartal mendatang. "Momentum positif ini akan kami pertahankan melalui inisiatif strategis dan inovasi berkelanjutan," katanya dalam konferensi pers.
+
+Profitabilitas juga menunjukkan peningkatan dengan net income meningkat 12% year-over-year. Margin operasional membaik berkat efisiensi biaya dan peningkatan revenue per aset.
+
+Para analis merespons positif laporan keuangan ini dengan meningkatkan target harga dan rating saham ${companyName}.`,
       sentiment: 'positif'
     },
     {
       title: `${companyName} Raih Kontrak Besar Senilai Miliaran Rupiah`,
-      summary: `Manajemen ${companyName} mengumumkan penandatanganan kontrak kerjasama strategis dengan mitra korporat terkemuka. Transaksi ini diharapkan memberikan kontribusi signifikan terhadap pertumbuhan revenue tahun depan.`,
+      summary: `Manajemen ${companyName} mengumumkan penandatanganan kontrak kerjasama strategis dengan mitra korporat terkemuka.`,
+      content: `Manajemen ${companyName} mengumumkan penandatanganan kontrak kerjasama strategis dengan mitra korporat terkemuka. Transaksi ini diharapkan memberikan kontribusi signifikan terhadap pertumbuhan revenue tahun depan.
+
+Kontrak senilai lebih dari satu triliun rupiah ini melibatkan penyediaan layanan komprehensif selama lima tahun. Kesepakatan ini mencerminkan kepercayaan klien terhadap kapabilitas dan track record ${companyName}.
+
+Kerjasama strategis ini akan membuka peluang cross-selling dan up-selling di berbagai segmen pasar. Manajemen optimis bahwa kontrak ini akan menjadi catalyst bagi pertumbuhan jangka panjang perusahaan.
+
+Dampak finansial dari kontrak ini diperkirakan akan terlihat jelas mulai kuartal ketiga 2026. Revenue recognition akan dilakukan secara bertahap sesuai dengan milestone-milestone yang telah disepakati.
+
+Standar industri menunjukkan kontrak sejenis biasanya memberikan kontribusi profitabilitas sebesar 15-20% pada tahun pertama implementasi.`,
       sentiment: 'positif'
     },
     {
       title: `Analis Rekomendasikan ${companyName} dengan Target Harga Naik Signifikan`,
-      summary: `Sejumlah analis pasar meningkatkan rating dan target harga saham ${companyName} mengikuti kinerja kuartal terbaru yang melampaui ekspektasi. Valuasi saat ini dinilai sangat menarik untuk investor jangka panjang.`,
+      summary: `Sejumlah analis pasar meningkatkan rating dan target harga saham ${companyName}.`,
+      content: `Sejumlah analis pasar meningkatkan rating dan target harga saham ${companyName} mengikuti kinerja kuartal terbaru yang melampaui ekspektasi. Valuasi saat ini dinilai sangat menarik untuk investor jangka panjang.
+
+Minimal tiga research house global melakukan upgrade terhadap saham ${companyName} dengan target harga dinaikkan rata-rata 20-25% dari level harga saat ini. Kesimpulannya adalah rekomendasi BUY dengan target jangka dua belas bulan.
+
+Faktor-faktor yang mendorong upgrade antara lain: (1) pertumbuhan revenue yang konsisten, (2) margin expansion yang berkelanjutan, (3) positioning yang kuat di pasar, dan (4) manajemen yang visioner.
+
+Valuasi P/E ratio dari ${companyName} bersaing menarik dibanding peer group dan berpotensi ekspansi seiring dengan realisasi pertumbuhan profit.
+
+Para investor institusional mulai meningkatkan akumulasi posisi saham ${companyName} sebagai hasil dari positifnya sentiment analis.`,
       sentiment: 'positif'
     },
     {
       title: `${companyName} Luncurkan Produk Inovatif untuk Segmen Premium`,
-      summary: `Divisi riset dan pengembangan ${companyName} telah selesai mengembangkan produk unggulan baru yang diharapkan bisa membuka pasar baru. Peluncuran produk dijadwalkan pada kuartal kedua 2026 mendatang.`,
+      summary: `Divisi riset dan pengembangan ${companyName} telah selesai mengembangkan produk unggulan baru.`,
+      content: `Divisi riset dan pengembangan ${companyName} telah selesai mengembangkan produk unggulan baru yang diharapkan bisa membuka pasar baru. Peluncuran produk dijadwalkan pada kuartal kedua 2026 mendatang.
+
+Produk inovatif ini adalah hasil dari riset mendalam selama dua tahun melibatkan ribuan jam pengembangan dan testing. Fitur-fitur canggih dirancang khusus untuk memenuhi kebutuhan pasar premium yang semakin demanding.
+
+Tim manajemen ${companyName} menekankan bahwa produk ini akan memberikan competitive advantage yang sustainable dalam medium term. Potensi keuntungan dari product line baru ini diperkirakan mencapai 500 miliar per tahun pada steady state.
+
+Pre-launch survey menunjukkan tingkat interest yang sangat tinggi dari target market dengan purchase intention mencapai 70 persen. Capacity planning sudah disiapkan untuk mengakomodasi demand yang diperkirakan akan sangat kuat.
+
+Strategi marketing dan distribusi juga sudah final dengan partnership agreement sudah ditandatangani dengan key distributors.`,
       sentiment: 'optimis'
     },
     {
       title: `Saham ${companyName} Trending Positif di Pasar Modal Indonesia`,
-      summary: `Saham ${companyName} mencatat tren positif dengan peningkatan permintaan dari investor institusional dan retail. Volume transaksi meningkat signifikan menunjukkan minat pasar yang tinggi terhadap perusahaan ini.`,
+      summary: `Saham ${companyName} mencatat tren positif dengan peningkatan permintaan dari investor institusional dan retail.`,
+      content: `Saham ${companyName} mencatat tren positif dengan peningkatan permintaan dari investor institusional dan retail. Volume transaksi meningkat signifikan menunjukkan minat pasar yang tinggi terhadap perusahaan ini.
+
+Trading volume harian rata-rata untuk saham ${companyName} meningkat 150% dalam sebulan terakhir. Hal ini mencerminkan meningkatnya liquidity dan interest dari market participants.
+
+Short covering juga menjadi pendorong kenaikan signifikan di saat ini dengan short interest menurun dari 5% menjadi 2% dari total saham beredar.
+
+Momentum positif didukung juga oleh rotasi dari investor away dari defensif ke growth stocks. ${companyName} sebagai defensive growth play mendapat benefit maksimal dari rotasi ini.
+
+Technical indicators juga menunjukkan setup yang bullish dengan berbagai support levels terbentuk di level-level higher lows.`,
       sentiment: 'positif'
     },
-    // Optimistic news
     {
       title: `${companyName} Targetkan Pertumbuhan Double Digit di 2026`,
-      summary: `Manajemen ${companyName} menetapkan target pertumbuhan revenue sebesar 12-15% untuk tahun fiskal 2026. Strategi agresif difokuskan pada ekspansi geografis dan pengembangan segmen bisnis baru yang potensial.`,
+      summary: `Manajemen ${companyName} menetapkan target pertumbuhan revenue sebesar 12-15% untuk tahun fiskal 2026.`,
+      content: `Manajemen ${companyName} menetapkan target pertumbuhan revenue sebesar 12-15% untuk tahun fiskal 2026. Strategi agresif difokuskan pada ekspansi geografis dan pengembangan segmen bisnis baru yang potensial.
+
+Target 12-15% growth ini melampaui proyeksi growth dari industri secara keseluruhan yang hanya di kisaran 8-10%. Hal ini mencerminkan keyakinan manajemen pada eksekusi strategi dan optimisme pasar.
+
+Keseluruhan revenue drivers sudah diidentifikasi dengan jelas: (1) organic growth dari existing business 8-10%, dan (2) inorganic growth dari product innovation dan market expansion sebesar 2-5%.
+
+Expense management strategy juga sudah dalam pipeline untuk memastikan net income growth outpacing revenue growth. Target adalah untuk mencapai net income growth sebesar 15-20% dalam tahun 2026.
+
+Manajemen confident bahwa target ini dapat dicapai berdasarkan momentum yang sudah terlihat di Q1 2026 dan pipeline opportunities yang strong.`,
       sentiment: 'optimis'
     },
     {
       title: `Dividen ${companyName} Diprediksi Naik 20% Tahun Ini`,
-      summary: `Analis memproyeksikan peningkatan pembayaran dividen ${companyName} mencapai 20% dibanding tahun lalu berkat peningkatan profitabilitas. Kebijakan dividend-friendly ini menarik perhatian investor yang mencari yield investment.`,
+      summary: `Analis memproyeksikan peningkatan pembayaran dividen ${companyName} mencapai 20% dibanding tahun lalu.`,
+      content: `Analis memproyeksikan peningkatan pembayaran dividen ${companyName} mencapai 20% dibanding tahun lalu berkat peningkatan profitabilitas. Kebijakan dividend-friendly ini menarik perhatian investor yang mencari yield investment.
+
+Dividen yield dari ${companyName} dengan proyeksi dividen increase ini akan mencapai level 5-6%, lebih menarik dibanding rata-rata market dan comparable companies.
+
+Payout ratio akan tetap sustainable pada level 40-50% dari net income leaves room untuk reinvestment dan debt reduction.
+
+Dividend track record dari ${companyName} selama lima tahun terakhir menunjukkan konsistensi increasing dividend per share. Proyeksi ini consistent dengan historical trend dan fundamental improvement.
+
+Investor income yang stabil dengan capital appreciation upside menjadikan ${companyName} attractive untuk dividend-focused portfolio.`,
       sentiment: 'optimis'
     },
     {
       title: `${companyName} Persiapkan Ekspansi ke Pasar ASEAN Baru`,
-      summary: `Manajemen ${companyName} sedang merancang strategi masuk ke pasar-pasar berkembang di kawasan ASEAN. Perluasan geografis ini diharapkan membuka peluang pertumbuhan eksponensial dalam lima tahun ke depan.`,
+      summary: `Manajemen ${companyName} sedang merancang strategi masuk ke pasar-pasar berkembang di kawasan ASEAN.`,
+      content: `Manajemen ${companyName} sedang merancang strategi masuk ke pasar-pasar berkembang di kawasan ASEAN. Perluasan geografis ini diharapkan membuka peluang pertumbuhan eksponensial dalam lima tahun ke depan.
+
+Target markets dalam ASEAN expansion adalah Vietnam, Thailand, dan Malaysia dengan combined total addressable market sebesar 100 miliar dollars. Penetrasi pada 2% dari TAM saja sudah akan generate 2 miliar revenue tahunan.
+
+Entry strategy yang akan digunakan adalah mix dari organic growth via greenfield investment dan inorganic growth via strategic acquisition. Management sudah mengidentifikasi potential acquisition targets di tiga negara tersebut.
+
+Expansion ini akan dilakukan secara bertahap dengan focus pada Vietnam di tahun pertama kemudian Thailand di tahun kedua. Malaysia akan follow pada tahun ketiga seiring dengan proven business model.
+
+Investment required untuk first phase expansion adalah estimated 300-400 miliar rupiah dengan expected payback period 3-4 tahun.`,
       sentiment: 'optimis'
     },
-    // Mixed sentiment
     {
       title: `${companyName} Kurangi Beban Operasional Melalui Otomasi Proses`,
-      summary: `${companyName} mengimplementasikan teknologi otomasi untuk mengurangi biaya operasional dan meningkatkan efisiensi. Investasi teknologi ini diharapkan bisa meningkatkan margin keuntungan sebesar 3-5% di tahun mendatang.`,
+      summary: `${companyName} mengimplementasikan teknologi otomasi untuk mengurangi biaya operasional dan meningkatkan efisiensi.`,
+      content: `${companyName} mengimplementasikan teknologi otomasi untuk mengurangi biaya operasional dan meningkatkan efisiensi. Investasi teknologi ini diharapkan bisa meningkatkan margin keuntungan sebesar 3-5% di tahun mendatang.
+
+Program automasi yang companywide ini melibatkan investment dalam RPA (Robotic Process Automation), AI-based solutions, dan business process optimization.
+
+Automation scope mencakup 40% dari current operational tasks dengan automation level 60-80%. Cost savings yang diharapkan adalah 15-20% dari total operational expenses atau equivalent to 500 miliar rupiah.
+
+Employee displacement risk minimal karena upskilling program akan memungkinkan employees untuk shift ke higher value tasks. Headcount reduction hanya expected pada level 10% dari current operational staff.
+
+Implementasi timeline adalah 2 tahun dengan phased approach per business unit. Early benefits already visible in pilot projects dengan measured efficiency improvement 25%.`,
       sentiment: 'positif'
     },
     {
       title: `Partnership Strategis ${companyName} Buka Peluang Bisnis Baru`,
-      summary: `${companyName} menjalin kerjasama dengan perusahaan teknologi global untuk mengintegrasikan solusi digital ke dalam ekosistem bisnis. Kolaborasi ini merupakan langkah strategis untuk tetap kompetitif di era digital.`,
+      summary: `${companyName} menjalin kerjasama dengan perusahaan teknologi global untuk mengintegrasikan solusi digital.`,
+      content: `${companyName} menjalin kerjasama dengan perusahaan teknologi global untuk mengintegrasikan solusi digital ke dalam ekosistem bisnis. Kolaborasi ini merupakan langkah strategis untuk tetap kompetitif di era digital.
+
+Partnership dengan leading technology company global ini akan membawa cutting-edge technology solutions ke platform ${companyName}. Integration ini expected to enhance customer experience dan operational efficiency secara signifikan.
+
+Revenue sharing model dari partnership ini diproyeksikan akan generate additional revenue stream of 5-10% dari current revenue baseline dengan margin struktur 40-50%.
+
+Strategic benefit dari partnership juga termasuk access to global market, technology know-how transfer, dan brand credibility enhancement.
+
+Timeline untuk full go-live dari partnership ini adalah Q3 2026 dengan pilot phase sudah dimulai di Q1 2026.`,
       sentiment: 'optimis'
     }
   ];
@@ -384,40 +475,43 @@ function getFallbackNews(ticker) {
     const template = newsTemplates[i % newsTemplates.length];
     const source = MOCK_NEWS_SOURCES[i % MOCK_NEWS_SOURCES.length];
     
-    // Generate realistic URLs based on source
-    let articleUrl;
-    const slug = template.title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '');
-    
-    if (source.id === 'kontan') {
-      articleUrl = `${source.baseUrl}/berita/${slug}`;
-    } else if (source.id === 'bisnis') {
-      articleUrl = `${source.baseUrl}/read/${Date.now()}-${slug}`;
-    } else if (source.id === 'investor') {
-      articleUrl = `${source.baseUrl}/read/${slug}`;
-    } else if (source.id === 'cnbc-indo') {
-      articleUrl = `${source.baseUrl}/market/article/${Date.now()}-${slug}`;
-    } else {
-      articleUrl = `${source.baseUrl}/${slug}`;
-    }
+    // Generate unique article ID
+    const articleId = `article_${Date.now()}_${i}`;
     
     // Generate slightly different timestamp for each article (looks more realistic)
     const daysAgo = Math.floor(Math.random() * 7);
     const publishedAt = new Date();
     publishedAt.setDate(publishedAt.getDate() - daysAgo);
     
+    // Store full article in memory
+    articleStorage.set(articleId, {
+      id: articleId,
+      title: template.title,
+      source: source.name,
+      summary: template.summary,
+      content: template.content,
+      sentiment: template.sentiment,
+      publishedAt: publishedAt.toISOString(),
+      author: 'AI Analyst'
+    });
+    
+    // Build internal URL to our own API
     news.push({
       title: template.title,
       source: source.name,
       summary: template.summary,
-      url: articleUrl,
+      url: `/api/news/${articleId}`,
       sentiment: template.sentiment,
       isFallback: true,
-      publishedAt: publishedAt.toISOString()
+      publishedAt: publishedAt.toISOString(),
+      articleId: articleId
     });
   }
 
   return news;
+}
+
+// Export function untuk get article by ID (untuk read endpoint)
+export function getArticleById(articleId) {
+  return articleStorage.get(articleId);
 }

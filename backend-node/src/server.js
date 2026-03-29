@@ -6,6 +6,7 @@ import analyzeRoutes from './routes/analyze.js';
 import authRoutes from './routes/auth.js';
 import portfolioRoutes from './routes/portfolio.js';
 import backtestRoutes from './routes/backtest.js';
+import { getArticleById } from './services/newsService.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 const app = express();
@@ -22,6 +23,18 @@ app.use(rateLimit({
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'stock-ai-backend' });
+});
+
+// Endpoint untuk read full article
+app.get('/api/news/:articleId', (req, res) => {
+  const { articleId } = req.params;
+  const article = getArticleById(articleId);
+  
+  if (!article) {
+    return res.status(404).json({ error: 'Article not found' });
+  }
+  
+  res.json(article);
 });
 
 app.use('/api/auth', authRoutes);

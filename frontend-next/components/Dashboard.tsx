@@ -29,6 +29,17 @@ type TradeJournalEntry = {
   note: string;
 };
 
+type NewsArticle = {
+  id: string;
+  title: string;
+  source: string;
+  summary: string;
+  content: string;
+  sentiment: string;
+  publishedAt: string;
+  author?: string;
+};
+
 const LIVE_REFRESH_SECONDS = 5;
 const WATCHLIST_STORAGE_KEY = 'sakutrader-watchlist';
 const ALERTS_STORAGE_KEY = 'sakutrader-alerts';
@@ -90,6 +101,8 @@ export default function Dashboard() {
   const [journalQty, setJournalQty] = useState('1');
   const [journalNote, setJournalNote] = useState('');
   const [logoMissing, setLogoMissing] = useState(false);
+  const [selectedArticle, setSelectedArticle] = useState<NewsArticle | null>(null);
+  const [loadingArticle, setLoadingArticle] = useState(false);
 
   const selectedStock = useMemo<StockResult | null>(() => {
     if (!data?.results?.length) return null;
@@ -161,6 +174,28 @@ export default function Dashboard() {
 
   const handleAnalyze = async () => {
     await runAnalyze(false);
+  };
+
+  const handleReadArticle = async (url: string) => {
+    if (!url.startsWith('/api/news/')) {
+      // Jika URL external, open di tab baru
+      window.open(url, '_blank');
+      return;
+    }
+
+    // Fetch full article dari backend
+    setLoadingArticle(true);
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Failed to fetch article');
+      const article = await response.json();
+      setSelectedArticle(article);
+    } catch (err) {
+      console.error('Error fetching article:', err);
+      alert('Gagal membuka artikel');
+    } finally {
+      setLoadingArticle(false);
+    }
   };
 
   useEffect(() => {
@@ -902,11 +937,14 @@ export default function Dashboard() {
                             {news.isFallback ? <span className="fallback-badge">Generated</span> : null}
                           </div>
                           <p className="news-summary">{news.summary}</p>
-                          {news.url ? (
-                            <a href={news.url} target="_blank" rel="noopener noreferrer" className="news-link">
+                          {news.url && (
+                            <button
+                              className="news-link"
+                              onClick={() => handleReadArticle(news.url || '')}
+                            >
                               Baca Selengkapnya →
-                            </a>
-                          ) : null}
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -918,6 +956,38 @@ export default function Dashboard() {
             ) : null}
           </>
         ) : null}
+
+        {/* Article Modal */}
+        {selectedArticle && (
+          <div className="modal-overlay" onClick={() => setSelectedArticle(null)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <button className="modal-close" onClick={() => setSelectedArticle(null)}>×</button>
+              <article className="article-modal">
+                <h1>{selectedArticle.title}</h1>
+                <div className="article-meta">
+                  <span className="source">🏢 {selectedArticle.source}</span>
+                  <span className={`sentiment-badge ${selectedArticle.sentiment.toLowerCase()}`}>
+                    {
+                      selectedArticle.sentiment === 'positif' ? '📈 Positif' :
+                      selectedArticle.sentiment === 'optimis' ? '📊 Optimis' :
+                      selectedArticle.sentiment === 'negatif' ? '📉 Negatif' :
+                      'Neutral'
+                    }
+                  </span>
+                  <span className="date">{new Date(selectedArticle.publishedAt).toLocaleDateString('id-ID')}</span>
+                </div>
+                <div className="article-body">
+                  {selectedArticle.content.split('\n').map((paragraph, idx) => (
+                    paragraph.trim() && <p key={idx}>{paragraph}</p>
+                  ))}
+                </div>
+                {selectedArticle.author && (
+                  <p className="article-author">✍️ {selectedArticle.author}</p>
+                )}
+              </article>
+            </div>
+          </div>
+        )}
 
         <footer className="panel retro-window footer-section">
           <WindowTitle title="SakuTrader Footer" />
