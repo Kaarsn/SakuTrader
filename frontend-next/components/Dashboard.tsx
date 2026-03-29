@@ -3,7 +3,7 @@
 import { ChangeEvent, useEffect, useMemo, useState } from 'react';
 import RecommendationBadge from './RecommendationBadge';
 import StockCharts from './StockCharts';
-import { AnalysisResponse, StockResult, exportAnalysis, requestAnalysis, getApiBase } from '../lib/api';
+import { AnalysisResponse, StockResult, exportAnalysis, requestAnalysis } from '../lib/api';
 
 type PriceAlertDirection = 'above' | 'below';
 
@@ -29,25 +29,92 @@ type TradeJournalEntry = {
   note: string;
 };
 
-type NewsArticle = {
-  id: string;
-  title: string;
-  source: string;
-  summary: string;
-  content: string;
-  sentiment: string;
-  publishedAt: string;
-  author?: string;
-};
-
 const LIVE_REFRESH_SECONDS = 5;
 const WATCHLIST_STORAGE_KEY = 'sakutrader-watchlist';
 const ALERTS_STORAGE_KEY = 'sakutrader-alerts';
 const JOURNAL_STORAGE_KEY = 'sakutrader-journal';
+const APP_STATE_STORAGE_KEY = 'sakutrader-app-state-v1';
+
+type PersistedAppState = {
+  tickerInput?: string;
+  timeframe?: string;
+  strategyPreset?: 'scalp' | 'balanced' | 'swing';
+  dark?: boolean;
+  compactView?: boolean;
+  selected?: string;
+  data?: AnalysisResponse | null;
+  riskCapital?: string;
+  riskLots?: string;
+};
+
+function isValidAnalysisResponse(payload: unknown): payload is AnalysisResponse {
+  if (!payload || typeof payload !== 'object') return false;
+  const candidate = payload as Partial<AnalysisResponse>;
+  return Array.isArray(candidate.results);
+}
 
 function formatNumber(value: number | undefined, digits = 2) {
   if (typeof value !== 'number' || Number.isNaN(value)) return '-';
   return value.toLocaleString('id-ID', { maximumFractionDigits: digits });
+}
+
+function parseIdrInput(raw: unknown) {
+  const safeRaw = String(raw ?? '');
+  const digitsOnly = safeRaw.replace(/[^\d]/g, '');
+  if (!digitsOnly) return 0;
+  return Number(digitsOnly);
+}
+
+function formatIdrInput(raw: unknown) {
+  const numeric = parseIdrInput(raw);
+  if (!numeric) return '';
+  return numeric.toLocaleString('id-ID');
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function calculateTickerScore(item: StockResult) {
+  if (item.error) return 0;
+
+  let score = 50;
+
+  if (item.recommendation === 'BUY') score += 18;
+  if (item.recommendation === 'SELL') score -= 18;
+  if (item.tradeConclusion === 'GOOD') score += 10;
+  if (item.tradeConclusion === 'BAD') score -= 10;
+
+  const sentiment = (item.sentiment || '').toLowerCase();
+  if (sentiment.includes('positive') || sentiment.includes('positif') || sentiment.includes('optimis')) score += 6;
+  if (sentiment.includes('negative') || sentiment.includes('negatif')) score -= 6;
+
+  const statuses = [
+    item.indicatorStatus.rsi,
+    item.indicatorStatus.macd,
+    item.indicatorStatus.ma20,
+    item.indicatorStatus.ma50,
+    item.indicatorStatus.cross
+  ];
+
+  statuses.forEach((status) => {
+    if (status === 'BULLISH') score += 4;
+    if (status === 'BEARISH') score -= 4;
+  });
+
+  const rsi = Number(item.technical?.indicators?.rsi);
+  if (Number.isFinite(rsi)) {
+    if (rsi >= 45 && rsi <= 60) score += 4;
+    else if (rsi > 60 && rsi <= 70) score += 2;
+    else if (rsi > 75) score -= 3;
+    else if (rsi < 25) score += 2;
+  }
+
+  if (item.technical?.signals?.volumeStrong === 'yes') score += 3;
+  if (item.priceChangePct > 8) score -= 3;
+  if (item.priceChangePct < -8) score -= 5;
+
+  return Math.round(clamp(score, 0, 100));
 }
 
 function displayTicker(ticker: string) {
@@ -100,9 +167,9 @@ export default function Dashboard() {
   const [journalEntryPrice, setJournalEntryPrice] = useState('');
   const [journalQty, setJournalQty] = useState('1');
   const [journalNote, setJournalNote] = useState('');
+  const [riskCapital, setRiskCapital] = useState('10.000.000');
+  const [riskLots, setRiskLots] = useState('5');
   const [logoMissing, setLogoMissing] = useState(false);
-  const [selectedArticle, setSelectedArticle] = useState<NewsArticle | null>(null);
-  const [loadingArticle, setLoadingArticle] = useState(false);
 
   const selectedStock = useMemo<StockResult | null>(() => {
     if (!data?.results?.length) return null;
@@ -124,6 +191,72 @@ export default function Dashboard() {
     });
     return map;
   }, [data]);
+
+  const tickerScoreMap = useMemo(() => {
+    const map = new Map<string, number>();
+    data?.results?.forEach((item) => {
+      if (item.error) return;
+      map.set(item.ticker, calculateTickerScore(item));
+    });
+    return map;
+  }, [data]);
+
+  const rankedTickers = useMemo(() => {
+    if (!data?.results?.length) return [] as string[];
+    return [...data.results]
+      .filter((item) => !item.error)
+      .sort((a, b) => (tickerScoreMap.get(b.ticker) || 0) - (tickerScoreMap.get(a.ticker) || 0))
+      .map((item) => item.ticker);
+  }, [data, tickerScoreMap]);
+
+  const selectedTickerRank = selectedStock ? (rankedTickers.indexOf(selectedStock.ticker) + 1 || null) : null;
+  const selectedTickerScore = selectedStock ? tickerScoreMap.get(selectedStock.ticker) : undefined;
+  const safeResults = useMemo(() => (Array.isArray(data?.results) ? data.results : []), [data]);
+
+  const riskSizing = useMemo(() => {
+    if (!selectedStock || selectedStock.error) return null;
+
+    const capital = parseIdrInput(riskCapital);
+    const requestedLots = Math.floor(Number(riskLots));
+    if (!Number.isFinite(capital) || !Number.isFinite(requestedLots) || capital <= 0 || requestedLots <= 0) return null;
+
+    const entryZone = selectedStock.tradePlan?.entryZone;
+    const entryPrice = entryZone
+      ? (Number(entryZone.low) + Number(entryZone.high)) / 2
+      : Number(selectedStock.latestPrice);
+    const cutLoss = Number(selectedStock.tradePlan?.cutLoss);
+
+    if (!Number.isFinite(entryPrice) || !Number.isFinite(cutLoss) || entryPrice <= cutLoss) return null;
+
+    const lotSize = 100;
+    const riskPerShare = entryPrice - cutLoss;
+    const maxAffordableLots = Math.floor(capital / (entryPrice * lotSize));
+    const lots = Math.max(0, Math.min(requestedLots, maxAffordableLots));
+    const usedShares = lots * lotSize;
+    const positionValue = usedShares * entryPrice;
+    const actualRisk = usedShares * riskPerShare;
+    const capitalUsagePct = capital > 0 ? (positionValue / capital) * 100 : 0;
+
+    const tp1 = Number(selectedStock.tradePlan?.takeProfit1);
+    const rewardPct = Number.isFinite(tp1) && tp1 > entryPrice
+      ? (((tp1 - entryPrice) / entryPrice) * 100)
+      : null;
+
+    return {
+      capital,
+      requestedLots,
+      maxAffordableLots,
+      entryPrice,
+      cutLoss,
+      riskPerShare,
+      lots,
+      usedShares,
+      positionValue,
+      actualRisk,
+      capitalUsagePct,
+      rewardPct
+    };
+  }, [selectedStock, riskCapital, riskLots]);
 
   const closedJournalEntries = useMemo(() => journal.filter((entry) => entry.exitPrice !== null), [journal]);
   const journalWinRate = useMemo(() => {
@@ -176,32 +309,6 @@ export default function Dashboard() {
     await runAnalyze(false);
   };
 
-  const handleReadArticle = async (url: string) => {
-    if (!url.startsWith('/api/news/')) {
-      // Jika URL external, open di tab baru
-      window.open(url, '_blank');
-      return;
-    }
-
-    // Fetch full article dari backend dengan API base yang benar
-    setLoadingArticle(true);
-    try {
-      const apiBase = getApiBase();
-      const fullUrl = `${apiBase}${url}`;
-      console.log('Fetching article from:', fullUrl);
-      
-      const response = await fetch(fullUrl);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const article = await response.json();
-      setSelectedArticle(article);
-    } catch (err) {
-      console.error('Error fetching article:', err);
-      alert('Gagal membuka artikel: ' + (err instanceof Error ? err.message : 'Unknown error'));
-    } finally {
-      setLoadingArticle(false);
-    }
-  };
-
   useEffect(() => {
     if (!shouldPollLive) return undefined;
     const intervalId = window.setInterval(() => {
@@ -226,9 +333,41 @@ export default function Dashboard() {
 
   useEffect(() => {
     try {
+      const rawAppState = window.localStorage.getItem(APP_STATE_STORAGE_KEY);
       const rawWatchlist = window.localStorage.getItem(WATCHLIST_STORAGE_KEY);
       const rawAlerts = window.localStorage.getItem(ALERTS_STORAGE_KEY);
       const rawJournal = window.localStorage.getItem(JOURNAL_STORAGE_KEY);
+
+      if (rawAppState) {
+        const parsedAppState = JSON.parse(rawAppState) as PersistedAppState;
+        if (typeof parsedAppState.tickerInput === 'string') {
+          setTickerInput(parsedAppState.tickerInput);
+        }
+        if (parsedAppState.timeframe && ['7d', '1m', '3m', '6m'].includes(parsedAppState.timeframe)) {
+          setTimeframe(parsedAppState.timeframe);
+        }
+        if (parsedAppState.strategyPreset && ['scalp', 'balanced', 'swing'].includes(parsedAppState.strategyPreset)) {
+          setStrategyPreset(parsedAppState.strategyPreset);
+        }
+        if (typeof parsedAppState.dark === 'boolean') {
+          setDark(parsedAppState.dark);
+        }
+        if (typeof parsedAppState.compactView === 'boolean') {
+          setCompactView(parsedAppState.compactView);
+        }
+        if (typeof parsedAppState.selected === 'string') {
+          setSelected(parsedAppState.selected);
+        }
+        if (isValidAnalysisResponse(parsedAppState.data)) {
+          setData(parsedAppState.data);
+        }
+        if (typeof parsedAppState.riskCapital === 'string' || typeof parsedAppState.riskCapital === 'number') {
+          setRiskCapital(formatIdrInput(parsedAppState.riskCapital));
+        }
+        if (typeof parsedAppState.riskLots === 'string' || typeof parsedAppState.riskLots === 'number') {
+          setRiskLots(String(parsedAppState.riskLots).replace(/[^\d]/g, ''));
+        }
+      }
 
       if (rawWatchlist) {
         const parsedWatchlist = JSON.parse(rawWatchlist);
@@ -258,6 +397,21 @@ export default function Dashboard() {
       setNotificationEnabled(Notification.permission === 'granted');
     }
   }, []);
+
+  useEffect(() => {
+    const payload: PersistedAppState = {
+      tickerInput,
+      timeframe,
+      strategyPreset,
+      dark,
+      compactView,
+      selected,
+      data,
+      riskCapital,
+      riskLots
+    };
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(payload));
+  }, [tickerInput, timeframe, strategyPreset, dark, compactView, selected, data, riskCapital, riskLots]);
 
   useEffect(() => {
     window.localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(watchlist));
@@ -420,6 +574,10 @@ export default function Dashboard() {
         exitAt: new Date().toISOString()
       };
     }));
+  };
+
+  const removeJournalEntry = (id: number) => {
+    setJournal((prev) => prev.filter((item) => item.id !== id));
   };
 
   const handleExport = async (format: 'json' | 'csv') => {
@@ -632,12 +790,62 @@ export default function Dashboard() {
                     {entry.exitPrice === null ? (
                       <div className="row-actions">
                         <button className="ghost" onClick={() => closeJournalEntry(entry.id)}>Close @ Latest</button>
+                        <button className="ghost" onClick={() => removeJournalEntry(entry.id)}>Delete</button>
                       </div>
-                    ) : null}
+                    ) : (
+                      <div className="row-actions">
+                        <button className="ghost" onClick={() => removeJournalEntry(entry.id)}>Delete</button>
+                      </div>
+                    )}
                   </div>
                 );
               }) : <p className="helper-text">Belum ada trade di journal.</p>}
             </div>
+          </article>
+
+          <article className="utility-card retro-window sub-window">
+            <WindowTitle title="Risk Position Sizer" />
+            <h3>Risk Position Sizer</h3>
+            <div className="inline-inputs">
+              <input
+                value={riskCapital}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setRiskCapital(formatIdrInput(e.target.value))}
+                placeholder="Total modal (contoh: 3.000.000)"
+              />
+              <input
+                value={riskLots}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setRiskLots(e.target.value.replace(/[^\d]/g, ''))}
+                placeholder="Risk per trade (lot)"
+              />
+            </div>
+            {selectedStock ? (
+              <div className="risk-metrics">
+                <p><strong>Ticker:</strong> {displayTicker(selectedStock.ticker)}</p>
+                {riskSizing ? (
+                  <>
+                    <p><strong>Requested Lot:</strong> {formatNumber(riskSizing.requestedLots, 0)} lot</p>
+                    <p><strong>Executable Lot:</strong> {formatNumber(riskSizing.lots, 0)} lot ({formatNumber(riskSizing.usedShares, 0)} lembar)</p>
+                    <p><strong>Maks Lot by Modal:</strong> {formatNumber(riskSizing.maxAffordableLots, 0)} lot</p>
+                    <p><strong>Entry (midpoint):</strong> {formatNumber(riskSizing.entryPrice, 0)} IDR</p>
+                    <p><strong>Cut Loss:</strong> {formatNumber(riskSizing.cutLoss, 0)} IDR</p>
+                    <p><strong>Risk/Share:</strong> {formatNumber(riskSizing.riskPerShare, 0)} IDR</p>
+                    <p><strong>Nilai Posisi:</strong> {formatNumber(riskSizing.positionValue, 0)} IDR</p>
+                    <p><strong>Penggunaan Modal:</strong> {formatNumber(riskSizing.capitalUsagePct)}%</p>
+                    <p><strong>Actual Risk:</strong> {formatNumber(riskSizing.actualRisk, 0)} IDR</p>
+                    <p><strong>Est. Reward ke TP1:</strong> {riskSizing.rewardPct !== null ? `${formatNumber(riskSizing.rewardPct)}%` : '-'}</p>
+                    {riskSizing.requestedLots > riskSizing.maxAffordableLots ? (
+                      <p className="warn">Lot diminta melebihi modal, otomatis disesuaikan ke lot maksimal yang mampu dibeli.</p>
+                    ) : null}
+                    {riskSizing.lots < 1 ? <p className="warn">Modal belum cukup untuk 1 lot pada harga entry saat ini.</p> : null}
+                    <p className="helper-text">Catatan: kalkulasi ini belum menghitung biaya broker, levy bursa, PPN, dan pajak final.</p>
+                  </>
+                ) : (
+                  <p className="helper-text">Isi modal & lot, dan pastikan trade plan punya cut loss.</p>
+                )}
+              </div>
+            ) : (
+              <p className="helper-text">Pilih ticker dulu untuk hitung sizing.</p>
+            )}
           </article>
         </section>
 
@@ -647,7 +855,7 @@ export default function Dashboard() {
           <>
             <section className="panel stock-grid retro-window">
               <WindowTitle title="Ticker Snapshot" />
-              {data.results.map((item) => (
+              {safeResults.map((item) => (
                 <article
                   key={item.ticker}
                   className={`stock-card ${selected === item.ticker ? 'active' : ''}`}
@@ -660,6 +868,10 @@ export default function Dashboard() {
                     <>
                       <p className="price">
                         {formatNumber(item.latestPrice)} {item.currency || 'IDR'}
+                      </p>
+                      <p className="quality-score">
+                        Score: <strong>{tickerScoreMap.get(item.ticker) || 0}</strong>/100
+                        {' • Rank #'}{rankedTickers.indexOf(item.ticker) + 1}
                       </p>
                       <p className={item.priceChangePct >= 0 ? 'good' : 'bad'}>
                         {formatNumber(item.priceChangePct)}%
@@ -697,6 +909,14 @@ export default function Dashboard() {
                 <div className="status-item">
                   <span>Recommendation</span>
                   <strong>{selectedStock.recommendation}</strong>
+                </div>
+                <div className="status-item">
+                  <span>Quality Score</span>
+                  <strong>{selectedTickerScore ?? '-'} / 100</strong>
+                </div>
+                <div className="status-item">
+                  <span>Ranking</span>
+                  <strong>{selectedTickerRank ? `#${selectedTickerRank}` : '-'}</strong>
                 </div>
                 <div className="status-item">
                   <span>Sentiment</span>
@@ -737,6 +957,7 @@ export default function Dashboard() {
                   <thead>
                     <tr>
                       <th>Ticker</th>
+                      <th>Score</th>
                       <th>Price</th>
                       <th>Change %</th>
                       <th>RSI</th>
@@ -748,12 +969,12 @@ export default function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.results.map((item) => {
+                    {safeResults.map((item) => {
                       if (item.error) {
                         return (
                           <tr key={`${item.ticker}-error`}>
                             <td>{displayTicker(item.ticker)}</td>
-                            <td colSpan={8} className="warn">{item.error}</td>
+                            <td colSpan={9} className="warn">{item.error}</td>
                           </tr>
                         );
                       }
@@ -761,6 +982,7 @@ export default function Dashboard() {
                       return (
                         <tr key={`${item.ticker}-row`}>
                           <td>{displayTicker(item.ticker)}</td>
+                          <td>{tickerScoreMap.get(item.ticker) || 0}</td>
                           <td>{formatNumber(item.latestPrice)}</td>
                           <td className={item.priceChangePct >= 0 ? 'good' : 'bad'}>
                             {formatNumber(item.priceChangePct)}%
@@ -919,84 +1141,17 @@ export default function Dashboard() {
                   <h2>AI Insight</h2>
                   <p>Sentiment: {selectedStock.sentiment}</p>
                   <p>{selectedStock.aiInsight}</p>
-
-                  <h2>📰 Berita Terkini & Sentiment</h2>
-                  {selectedStock.news.length ? (
-                    <div className="news-container">
-                      {selectedStock.news.slice(0, 8).map((news, idx) => (
-                        <div className="news-item" key={`${news.title}-${news.source}-${idx}`}>
-                          <div className="news-header">
-                            <h4>{news.title}</h4>
-                            <span className={`sentiment-badge ${(news.sentiment || 'neutral').toLowerCase()}`}>
-                              {
-                                news.sentiment === 'positif' ? '📈 Positif' :
-                                news.sentiment === 'optimis' ? '📊 Optimis' :
-                                news.sentiment === 'negatif' ? '📉 Negatif' :
-                                'Neutral'
-                              }
-                            </span>
-                          </div>
-                          <div className="news-meta">
-                            <span className="source">🏢 {news.source}</span>
-                            {news.isFallback ? <span className="fallback-badge">Generated</span> : null}
-                          </div>
-                          <p className="news-summary">{news.summary}</p>
-                          {news.url && (
-                            <button
-                              className="news-link"
-                              onClick={() => handleReadArticle(news.url || '')}
-                            >
-                              Baca Selengkapnya →
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="no-news">📭 Belum ada berita terkait ditemukan untuk ticker ini.</p>
-                  )}
                 </article>
               </section>
             ) : null}
           </>
         ) : null}
 
-        {/* Article Modal */}
-        {selectedArticle && (
-          <div className="modal-overlay" onClick={() => setSelectedArticle(null)}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-              <button className="modal-close" onClick={() => setSelectedArticle(null)}>×</button>
-              <article className="article-modal">
-                <h1>{selectedArticle.title}</h1>
-                <div className="article-meta">
-                  <span className="source">🏢 {selectedArticle.source}</span>
-                  <span className={`sentiment-badge ${selectedArticle.sentiment.toLowerCase()}`}>
-                    {
-                      selectedArticle.sentiment === 'positif' ? '📈 Positif' :
-                      selectedArticle.sentiment === 'optimis' ? '📊 Optimis' :
-                      selectedArticle.sentiment === 'negatif' ? '📉 Negatif' :
-                      'Neutral'
-                    }
-                  </span>
-                  <span className="date">{new Date(selectedArticle.publishedAt).toLocaleDateString('id-ID')}</span>
-                </div>
-                <div className="article-body">
-                  {selectedArticle.content.split('\n').map((paragraph, idx) => (
-                    paragraph.trim() && <p key={idx}>{paragraph}</p>
-                  ))}
-                </div>
-                {selectedArticle.author && (
-                  <p className="article-author">✍️ {selectedArticle.author}</p>
-                )}
-              </article>
-            </div>
-          </div>
-        )}
-
         <footer className="panel retro-window footer-section">
           <WindowTitle title="SakuTrader Footer" />
           <div className="footer-content">
-            <p className="copyright">© 2026 Muhammad Kaab Aryadilla. All rights reserved.</p>
+            <p className="copyright">© 2026 Arya Dilla. All rights reserved.</p>
+            <p className="powered-by">GitHub: <a className="footer-link" href="https://github.com/Kaarsn" target="_blank" rel="noreferrer">github.com/Kaarsn</a></p>
             <p className="powered-by">Powered by AI-driven technical analysis, Golden/Death Cross detection, and multi-timeframe insights.</p>
             <p className="roadmap">🚀 Upcoming: LLM-powered financial report analysis, earnings insights, and fundamental analysis.</p>
           </div>

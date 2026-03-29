@@ -1,16 +1,16 @@
 import type { Metadata } from 'next';
-import { VT323, Space_Mono } from 'next/font/google';
+import { Sora, Nunito } from 'next/font/google';
 import './globals.css';
 
-const headingFont = VT323({
+const headingFont = Sora({
   subsets: ['latin'],
-  weight: ['400'],
+  weight: ['500', '700'],
   variable: '--font-heading'
 });
 
-const bodyFont = Space_Mono({
+const bodyFont = Nunito({
   subsets: ['latin'],
-  weight: ['400', '700'],
+  weight: ['400', '500', '700'],
   variable: '--font-body'
 });
 
