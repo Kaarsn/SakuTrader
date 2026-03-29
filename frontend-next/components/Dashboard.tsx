@@ -1,9 +1,16 @@
 'use client';
 
-import { ChangeEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import RecommendationBadge from './RecommendationBadge';
 import StockCharts from './StockCharts';
-import { AnalysisResponse, StockResult, exportAnalysis, requestAnalysis } from '../lib/api';
+import {
+  AnalysisResponse,
+  MarketRankResponse,
+  StockResult,
+  exportAnalysis,
+  requestAnalysis,
+  requestMarketRank
+} from '../lib/api';
 
 type PriceAlertDirection = 'above' | 'below';
 
@@ -30,6 +37,7 @@ type TradeJournalEntry = {
 };
 
 const LIVE_REFRESH_SECONDS = 5;
+const MARKET_RANK_REFRESH_MS = 1000;
 const WATCHLIST_STORAGE_KEY = 'sakutrader-watchlist';
 const ALERTS_STORAGE_KEY = 'sakutrader-alerts';
 const JOURNAL_STORAGE_KEY = 'sakutrader-journal';
@@ -170,6 +178,9 @@ export default function Dashboard() {
   const [riskCapital, setRiskCapital] = useState('10.000.000');
   const [riskLots, setRiskLots] = useState('5');
   const [logoMissing, setLogoMissing] = useState(false);
+  const [marketRank, setMarketRank] = useState<MarketRankResponse | null>(null);
+  const [marketRankError, setMarketRankError] = useState('');
+  const marketRankFetchingRef = useRef(false);
 
   const selectedStock = useMemo<StockResult | null>(() => {
     if (!data?.results?.length) return null;
@@ -212,6 +223,32 @@ export default function Dashboard() {
   const selectedTickerRank = selectedStock ? (rankedTickers.indexOf(selectedStock.ticker) + 1 || null) : null;
   const selectedTickerScore = selectedStock ? tickerScoreMap.get(selectedStock.ticker) : undefined;
   const safeResults = useMemo(() => (Array.isArray(data?.results) ? data.results : []), [data]);
+
+  const topGainers = useMemo(() => marketRank?.gainers || [], [marketRank]);
+  const topLosers = useMemo(() => marketRank?.losers || [], [marketRank]);
+
+  const longTermCandidates = useMemo(() => {
+    return safeResults
+      .filter((item) => !item.error)
+      .map((item) => {
+        const score = tickerScoreMap.get(item.ticker) || 0;
+        const entryLow = item.tradePlan?.entryZone?.low;
+        const entryHigh = item.tradePlan?.entryZone?.high;
+        const entryText = (typeof entryLow === 'number' && typeof entryHigh === 'number')
+          ? `${formatNumber(entryLow, 0)} - ${formatNumber(entryHigh, 0)}`
+          : `${formatNumber(item.latestPrice, 0)} (market)`;
+        return {
+          ticker: item.ticker,
+          score,
+          recommendation: item.recommendation,
+          entryText,
+          rationale: item.tradeConclusion
+        };
+      })
+      .filter((item) => item.score >= 65 && (item.recommendation === 'BUY' || item.recommendation === 'HOLD'))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 100);
+  }, [safeResults, tickerScoreMap]);
 
   const riskSizing = useMemo(() => {
     if (!selectedStock || selectedStock.error) return null;
@@ -317,6 +354,28 @@ export default function Dashboard() {
 
     return () => window.clearInterval(intervalId);
   }, [shouldPollLive, tickerInput, timeframe, strategyPreset]);
+
+  useEffect(() => {
+    const refreshMarketRank = async () => {
+      if (marketRankFetchingRef.current) return;
+      marketRankFetchingRef.current = true;
+      try {
+        const snapshot = await requestMarketRank(100);
+        setMarketRank(snapshot);
+        setMarketRankError('');
+      } catch (err) {
+        setMarketRankError(err instanceof Error ? err.message : 'Failed to fetch market rank');
+      } finally {
+        marketRankFetchingRef.current = false;
+      }
+    };
+
+    refreshMarketRank();
+    const id = window.setInterval(() => {
+      refreshMarketRank();
+    }, MARKET_RANK_REFRESH_MS);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!shouldPollLive) {
@@ -803,7 +862,38 @@ export default function Dashboard() {
             </div>
           </article>
 
-          <article className="utility-card retro-window sub-window">
+          <article className="utility-card retro-window sub-window top-gainers-card">
+            <WindowTitle title="Top Gainers Rank 1-100" />
+            <h3>Top Gainers (Rank 1-100)</h3>
+            <p className="helper-text">
+              Status: {marketRank?.marketOpen ? 'Market Open' : 'Market Closed'}
+              {' • Sampled: '}{marketRank?.sampled ?? 0}/{marketRank?.universeSize ?? 100}
+            </p>
+            <div className="list-scroll rank-scroll">
+              {topGainers.length ? topGainers.map((item) => (
+                <div className="list-row" key={`${item.ticker}-${item.rank}`}>
+                  <span>
+                    <strong className="ranking-rank">#{item.rank}</strong> {displayTicker(item.ticker)}
+                  </span>
+                  <span className="good">+{formatNumber(item.changePct)}%</span>
+                </div>
+              )) : <p className="helper-text">Belum ada saham hijau pada snapshot ini.</p>}
+            </div>
+            <h3 style={{ marginTop: '10px' }}>Top Losers (Rank 1-100)</h3>
+            <div className="list-scroll rank-scroll">
+              {topLosers.length ? topLosers.map((item) => (
+                <div className="list-row" key={`${item.ticker}-${item.rank}-red`}>
+                  <span>
+                    <strong className="ranking-rank">#{item.rank}</strong> {displayTicker(item.ticker)}
+                  </span>
+                  <span className="bad">{formatNumber(item.changePct)}%</span>
+                </div>
+              )) : <p className="helper-text">Belum ada saham merah pada snapshot ini.</p>}
+            </div>
+            {marketRankError ? <p className="warn">{marketRankError}</p> : null}
+          </article>
+
+          <article className="utility-card retro-window sub-window risk-card">
             <WindowTitle title="Risk Position Sizer" />
             <h3>Risk Position Sizer</h3>
             <div className="inline-inputs">
@@ -846,6 +936,22 @@ export default function Dashboard() {
             ) : (
               <p className="helper-text">Pilih ticker dulu untuk hitung sizing.</p>
             )}
+          </article>
+
+          <article className="utility-card retro-window sub-window longterm-card">
+            <WindowTitle title="Long-Term Picks + Entry" />
+            <h3>Long-Term Picks + Entry</h3>
+            <div className="list-scroll rank-scroll">
+              {longTermCandidates.length ? longTermCandidates.map((item, idx) => (
+                <div className="list-row" key={`${item.ticker}-${idx}`}>
+                  <span>
+                    <strong>{displayTicker(item.ticker)}</strong>
+                    {' | Entry: '}{item.entryText}
+                  </span>
+                  <span>Score {item.score}</span>
+                </div>
+              )) : <p className="helper-text">Belum ada kandidat long-term. Coba tambah ticker lalu Analyze.</p>}
+            </div>
           </article>
         </section>
 
@@ -1139,8 +1245,37 @@ export default function Dashboard() {
                   )}
 
                   <h2>AI Insight</h2>
-                  <p>Sentiment: {selectedStock.sentiment}</p>
-                  <p>{selectedStock.aiInsight}</p>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <p><strong>Sentiment:</strong> {selectedStock.sentiment}</p>
+                    {typeof selectedStock.aiInsight === 'object' ? (
+                      <>
+                        <p><strong>Penyebab Pergerakan:</strong> {selectedStock.aiInsight?.causes || 'N/A'}</p>
+                        <p><strong>Main Insight:</strong> {selectedStock.aiInsight?.insight || '-'}</p>
+                      </>
+                    ) : (
+                      <p><strong>Main Insight:</strong> {selectedStock.aiInsight || '-'}</p>
+                    )}
+                  </div>
+                  
+                  {typeof selectedStock.aiInsight === 'object' && selectedStock.aiInsight?.topNews && selectedStock.aiInsight.topNews.length > 0 && (
+                    <div style={{ marginBottom: '1rem', padding: '0.5rem', backgroundColor: '#f0f0f0', borderRadius: '4px' }}>
+                      <p><strong>Berita Terkait:</strong></p>
+                      <ul style={{ margin: '0.5rem 0', paddingLeft: '1.5rem' }}>
+                        {selectedStock.aiInsight.topNews.map((news, idx) => (
+                          <li key={idx} style={{ fontSize: '0.85rem', marginBottom: '0.3rem' }}>
+                            {news.title} <em>({news.date || 'N/A'})</em>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  {typeof selectedStock.aiInsight === 'object' && selectedStock.aiInsight?.outlook && (
+                    <div style={{ padding: '0.5rem', backgroundColor: '#ffffcc', borderRadius: '4px', borderLeft: '3px solid #ff9900' }}>
+                      <p><strong>📈 Prospek Ke Depan (1-3 hari):</strong></p>
+                      <p style={{ fontSize: '0.9rem', marginTop: '0.3rem' }}>{selectedStock.aiInsight.outlook}</p>
+                    </div>
+                  )}
                 </article>
               </section>
             ) : null}

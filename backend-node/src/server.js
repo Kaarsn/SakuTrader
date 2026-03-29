@@ -10,15 +10,22 @@ import { getArticleById } from './services/newsService.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 const app = express();
+const isDevelopment = process.env.NODE_ENV !== 'production';
+
+function isLocalRequest(req) {
+  const ip = req.ip || req.socket?.remoteAddress || '';
+  return ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1';
+}
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 
 app.use(rateLimit({
   windowMs: 60 * 1000,
-  max: 60,
+  max: isDevelopment ? 2000 : 120,
   standardHeaders: true,
-  legacyHeaders: false
+  legacyHeaders: false,
+  skip: (req) => isDevelopment && isLocalRequest(req)
 }));
 
 app.get('/health', (req, res) => {

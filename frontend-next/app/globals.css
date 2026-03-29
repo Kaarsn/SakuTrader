@@ -240,7 +240,7 @@ button {
   padding: 10px;
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .utility-grid > .window-titlebar {
@@ -365,6 +365,25 @@ button {
 .risk-metrics p {
   margin: 4px 0;
   font-size: 12px;
+}
+
+.top-gainers-card,
+.longterm-card {
+  min-height: 260px;
+}
+
+.risk-card {
+  grid-column: 1 / span 3;
+}
+
+.rank-scroll {
+  max-height: 210px;
+}
+
+.ranking-rank {
+  display: inline-block;
+  min-width: 34px;
+  color: var(--accent);
 }
 
 .stock-grid {
@@ -886,7 +905,11 @@ button {
   }
 
   .utility-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .risk-card {
+    grid-column: 1 / -1;
   }
 
   .detail-grid {
@@ -905,5 +928,9 @@ button {
 
   .inline-inputs {
     flex-direction: column;
+  }
+
+  .utility-grid {
+    grid-template-columns: 1fr;
   }
 }

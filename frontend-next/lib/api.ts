@@ -106,7 +106,18 @@ export type StockResult = {
     sentiment?: string;
     isFallback?: boolean;
   }[];
-  aiInsight: string;
+  aiInsight: string | {
+    insight?: string;
+    causes?: string;
+    topNews?: {
+      title: string;
+      source: string;
+      summary: string;
+      url?: string;
+      date?: string;
+    }[];
+    outlook?: string;
+  };
   sentiment: string;
   recommendation: 'BUY' | 'HOLD' | 'SELL';
   indicatorStatus: {
@@ -147,6 +158,24 @@ export type AnalysisResponse = {
   strategy?: 'scalp' | 'balanced' | 'swing';
   results: StockResult[];
   cached: boolean;
+};
+
+export type MarketRankItem = {
+  rank: number;
+  ticker: string;
+  price: number;
+  changePct: number;
+  previousClose?: number;
+  asOf: string;
+};
+
+export type MarketRankResponse = {
+  generatedAt: string;
+  marketOpen: boolean;
+  universeSize: number;
+  sampled: number;
+  gainers: MarketRankItem[];
+  losers: MarketRankItem[];
 };
 
 // Lazily compute API base URL (evaluated at request time, not module load time)
@@ -204,4 +233,16 @@ export async function exportAnalysis(data: AnalysisResponse, format: 'json' | 'c
   }
 
   return response.text();
+}
+
+export async function requestMarketRank(limit = 100): Promise<MarketRankResponse> {
+  const API_BASE = getApiBase();
+  const response = await fetch(`${API_BASE}/api/analysis/market-rank?limit=${encodeURIComponent(String(limit))}`);
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || 'Failed to fetch market rank');
+  }
+
+  return response.json();
 }

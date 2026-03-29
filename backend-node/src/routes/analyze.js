@@ -3,9 +3,10 @@ import { Parser } from 'json2csv';
 import { fetchTechnicalAnalysis } from '../services/pythonClient.js';
 import { fetchNewsForTicker } from '../services/newsService.js';
 import { generateAiInsight } from '../services/aiService.js';
-import { fetchLiveQuote } from '../services/liveMarketService.js';
+import { fetchLiveQuote, isIdxMarketOpen } from '../services/liveMarketService.js';
 import { analysisCache, makeCacheKey } from '../services/cache.js';
 import { mapTimeframeToPeriod, validateTimeframe } from '../utils/timeframe.js';
+import { IDX_MARKET_UNIVERSE } from '../data/idxMarketUniverse.js';
 import {
   buildRecommendation,
   buildTradePlan,
@@ -22,6 +23,61 @@ const MULTI_WINDOW_PERIODS = [
   { key: '1m', label: '1 month', period: '1mo' },
   { key: '7d', label: '7 days', period: '7d' }
 ];
+
+async function runInBatches(items, batchSize, runner) {
+  const output = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    // Keep outbound requests under control to avoid Yahoo throttling.
+    const results = await Promise.allSettled(batch.map((item) => runner(item)));
+    output.push(...results);
+  }
+  return output;
+}
+
+async function buildMarketRankSnapshot({ limit = 100 } = {}) {
+  const safeLimit = Math.min(Math.max(Number(limit) || 100, 10), 100);
+  const universe = IDX_MARKET_UNIVERSE.slice(0, safeLimit).map((ticker) => normalizeIdxTicker(ticker));
+
+  const settled = await runInBatches(universe, 12, async (ticker) => {
+    const live = await fetchLiveQuote(ticker);
+    if (!live || typeof live.price !== 'number' || typeof live.changePct !== 'number') {
+      return null;
+    }
+    return {
+      ticker: ticker.replace(/\.JK$/i, ''),
+      price: live.price,
+      changePct: live.changePct,
+      previousClose: live.previousClose,
+      asOf: live.asOf
+    };
+  });
+
+  const rows = settled
+    .filter((item) => item.status === 'fulfilled' && item.value)
+    .map((item) => item.value);
+
+  const gainers = [...rows]
+    .filter((row) => row.changePct >= 0)
+    .sort((a, b) => b.changePct - a.changePct)
+    .slice(0, 100)
+    .map((row, idx) => ({ ...row, rank: idx + 1 }));
+
+  const losers = [...rows]
+    .filter((row) => row.changePct < 0)
+    .sort((a, b) => a.changePct - b.changePct)
+    .slice(0, 100)
+    .map((row, idx) => ({ ...row, rank: idx + 1 }));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    marketOpen: isIdxMarketOpen(),
+    universeSize: universe.length,
+    sampled: rows.length,
+    gainers,
+    losers
+  };
+}
 
 function buildIndicatorStatus({ technical, latestPrice }) {
   const rsi = Number(technical?.indicators?.rsi);
@@ -241,7 +297,8 @@ async function analyzeOneTicker(ticker, timeframe, strategyPreset) {
   const ai = await generateAiInsight({
     ticker: displayTicker,
     technical,
-    news
+    news,
+    priceChangePct: displayChangePct || 0
   });
 
   const recommendation = buildRecommendation({
@@ -270,7 +327,12 @@ async function analyzeOneTicker(ticker, timeframe, strategyPreset) {
     technical,
     live,
     news,
-    aiInsight: ai.insight,
+    aiInsight: {
+      insight: ai.insight,
+      causes: ai.causes,
+      topNews: ai.topNews,
+      outlook: ai.outlook
+    },
     sentiment: ai.sentiment,
     recommendation,
     indicatorStatus,
@@ -331,6 +393,16 @@ router.post('/', async (req, res, next) => {
       analysisCache.set(cacheKey, payload);
     }
     return res.json({ ...payload, cached: false });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get('/market-rank', async (req, res, next) => {
+  try {
+    const { limit = '100' } = req.query;
+    const snapshot = await buildMarketRankSnapshot({ limit: Number(limit) });
+    return res.json(snapshot);
   } catch (error) {
     return next(error);
   }
