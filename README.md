@@ -167,20 +167,47 @@ Root `.env.example` documents all keys. Most important:
 
 ## Deployment
 
-## Frontend (Vercel)
+### 🚀 Quick Start for Vercel "Failed to Fetch" Issue
+
+If your Vercel frontend shows "Failed to Fetch" errors:
+
+1. **Go to Vercel Dashboard** → Your AI-Analyst project → Settings
+2. **Add Environment Variable**:
+   - Name: `NEXT_PUBLIC_API_BASE`
+   - Value: `https://ai-analyst-production-6dc9.up.railway.app`
+3. **Redeploy**: Go to Deployments → Click latest → "Redeploy"
+
+👉 **See `VERCEL_SETUP.md` for step-by-step guide**
+
+### Full Deployment Guide
+
+👉 **See `DEPLOYMENT_GUIDE.md` for complete instructions covering**:
+- Backend deployment to Railway
+- Frontend deployment to Vercel
+- Environment variable setup
+- Multi-device access setup
+- Troubleshooting
+- Production checklist
+
+### Frontend (Vercel)
 
 - Root directory: `frontend-next`
-- Env var: `NEXT_PUBLIC_API_BASE=https://<your-backend-domain>`
+- **Critical Env**: `NEXT_PUBLIC_API_BASE=https://<your-railway-backend-domain>`
+  - Must be set in Vercel Environment Variables (not .env.local)
+  - Example: `https://ai-analyst-production-6dc9.up.railway.app`
 
-## Backend (Railway/Render)
+### Backend (Railway)
 
 Deploy as two services:
 
-1. `analytics-python`
+1. **analytics-python**
    - Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-2. `backend-node`
+   - Python version: 3.9+
+
+2. **backend-node**
    - Start command: `npm start`
-   - Set `ANALYTICS_SERVICE_URL` to Python service URL.
+   - Set env: `ANALYTICS_SERVICE_URL` to Python service URL
+   - Example: `http://analytics:8000` (Railway internal network)
 
 ## Notes for Scaling
 
