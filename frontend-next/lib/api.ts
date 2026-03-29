@@ -149,7 +149,29 @@ export type AnalysisResponse = {
   cached: boolean;
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4000';
+// Dynamically detect API base URL
+function getApiBase(): string {
+  // If explicitly set in env, use it
+  if (process.env.NEXT_PUBLIC_API_BASE) {
+    return process.env.NEXT_PUBLIC_API_BASE;
+  }
+  
+  // Browser-side detection: use same hostname as frontend
+  // This allows tablet/phone to access from different IP addresses
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    const port = 4000;
+    
+    // If tablet/phone akses dari IP address berbeda, this will work
+    // If localhost, juga work karena pakai window.location.hostname
+    return `http://${hostname}:${port}`;
+  }
+  
+  // Server-side fallback
+  return 'http://localhost:4000';
+}
+
+const API_BASE = getApiBase();
 
 export async function requestAnalysis(
   tickers: string[],
