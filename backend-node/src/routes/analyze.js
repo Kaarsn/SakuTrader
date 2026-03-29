@@ -331,7 +331,8 @@ async function analyzeOneTicker(ticker, timeframe, strategyPreset) {
       insight: ai.insight,
       causes: ai.causes,
       topNews: ai.topNews,
-      outlook: ai.outlook
+      outlook: ai.outlook,
+      mediumOutlook: ai.mediumOutlook
     },
     sentiment: ai.sentiment,
     recommendation,

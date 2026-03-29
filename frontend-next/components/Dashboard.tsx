@@ -138,6 +138,8 @@ function tickerForInput(ticker: string) {
 }
 
 const MULTI_WINDOW_ORDER: Array<'6m' | '3m' | '1m' | '7d'> = ['6m', '3m', '1m', '7d'];
+const TRADINGVIEW_INTERVALS = ['1', '5', '15', '60', '240', 'D', 'W'] as const;
+const MAX_INTERVAL_CHANGES_PER_DAY = 20;
 
 function WindowTitle({ title }: { title: string }) {
   return (
@@ -180,6 +182,9 @@ export default function Dashboard() {
   const [logoMissing, setLogoMissing] = useState(false);
   const [marketRank, setMarketRank] = useState<MarketRankResponse | null>(null);
   const [marketRankError, setMarketRankError] = useState('');
+  const [rankNow, setRankNow] = useState(new Date());
+  const [tvInterval, setTvInterval] = useState('D'); // TradingView interval default: Daily
+  const [intervalChangeLog, setIntervalChangeLog] = useState<{ date: string; count: number }>({ date: new Date().toISOString().split('T')[0], count: 0 });
   const marketRankFetchingRef = useRef(false);
 
   const selectedStock = useMemo<StockResult | null>(() => {
@@ -226,6 +231,90 @@ export default function Dashboard() {
 
   const topGainers = useMemo(() => marketRank?.gainers || [], [marketRank]);
   const topLosers = useMemo(() => marketRank?.losers || [], [marketRank]);
+  const rankDateLabel = useMemo(() => rankNow.toLocaleDateString('id-ID', {
+    weekday: 'short',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric'
+  }), [rankNow]);
+  const rankTimeLabel = useMemo(() => rankNow.toLocaleTimeString('id-ID', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  }), [rankNow]);
+  const isIdxMarketOpenNow = useMemo(() => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Jakarta',
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).formatToParts(rankNow);
+
+    const weekday = parts.find((part) => part.type === 'weekday')?.value ?? '';
+    const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0');
+    const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? '0');
+    const minuteOfDay = hour * 60 + minute;
+
+    const inRange = (startHour: number, startMinute: number, endHour: number, endMinute: number) => {
+      const start = startHour * 60 + startMinute;
+      const end = endHour * 60 + endMinute;
+      return minuteOfDay >= start && minuteOfDay <= end;
+    };
+
+    if (weekday === 'Mon' || weekday === 'Tue' || weekday === 'Wed' || weekday === 'Thu') {
+      return inRange(9, 0, 12, 0) || inRange(13, 30, 15, 49);
+    }
+
+    if (weekday === 'Fri') {
+      return inRange(9, 0, 11, 30) || inRange(14, 0, 15, 49);
+    }
+
+    return false;
+  }, [rankNow]);
+
+  const mediumTermOutlook = useMemo(() => {
+    if (!selectedStock || selectedStock.error) return '-';
+
+    const aiInsightObject = typeof selectedStock.aiInsight === 'object' ? selectedStock.aiInsight : null;
+    const explicitOutlook = (
+      aiInsightObject?.mediumOutlook ||
+      aiInsightObject?.outlook1To3Months ||
+      aiInsightObject?.outlook_1_3_month
+    );
+
+    if (typeof explicitOutlook === 'string' && explicitOutlook.trim()) {
+      return explicitOutlook.trim();
+    }
+
+    const statuses = [
+      selectedStock.indicatorStatus.rsi,
+      selectedStock.indicatorStatus.macd,
+      selectedStock.indicatorStatus.ma20,
+      selectedStock.indicatorStatus.ma50,
+      selectedStock.indicatorStatus.cross
+    ];
+
+    const bullishCount = statuses.filter((status) => status === 'BULLISH').length;
+    const bearishCount = statuses.filter((status) => status === 'BEARISH').length;
+    const sentiment = (selectedStock.sentiment || '').toLowerCase();
+    const positiveSentiment = sentiment.includes('positive') || sentiment.includes('positif') || sentiment.includes('optimis');
+    const negativeSentiment = sentiment.includes('negative') || sentiment.includes('negatif') || sentiment.includes('pesimis');
+
+    if (selectedStock.recommendation === 'BUY' && bullishCount >= bearishCount && !negativeSentiment) {
+      return 'Potensi 1-3 bulan cenderung naik bertahap bila support terjaga. Strategi terbaik: akumulasi bertingkat saat koreksi sehat dengan disiplin cut loss.';
+    }
+
+    if (selectedStock.recommendation === 'SELL' || bearishCount >= 3 || negativeSentiment) {
+      return 'Prospek 1-3 bulan masih rawan tekanan. Utamakan proteksi modal, hindari entry agresif, dan tunggu konfirmasi pembalikan tren sebelum menambah posisi.';
+    }
+
+    if (selectedStock.recommendation === 'HOLD' || bullishCount === bearishCount || positiveSentiment) {
+      return 'Prospek 1-3 bulan cenderung sideways ke positif moderat. Cocok untuk strategi hold bertahap sambil memantau volume dan konfirmasi breakout.';
+    }
+
+    return 'Prospek 1-3 bulan belum memiliki sinyal dominan. Fokus pada manajemen risiko, level support-resistance, dan evaluasi berkala tiap update data.';
+  }, [selectedStock]);
 
   const longTermCandidates = useMemo(() => {
     return safeResults
@@ -378,6 +467,13 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    const id = window.setInterval(() => {
+      setRankNow(new Date());
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
     if (!shouldPollLive) {
       setNextRefreshCountdown(0);
       return undefined;
@@ -483,6 +579,13 @@ export default function Dashboard() {
   useEffect(() => {
     window.localStorage.setItem(JOURNAL_STORAGE_KEY, JSON.stringify(journal));
   }, [journal]);
+
+  useEffect(() => {
+    document.body.classList.toggle('app-dark', dark);
+    return () => {
+      document.body.classList.remove('app-dark');
+    };
+  }, [dark]);
 
   useEffect(() => {
     if (!data?.results?.length || !alerts.length) return;
@@ -592,6 +695,28 @@ export default function Dashboard() {
     setAlerts((prev) => prev.filter((item) => item.id !== id));
   };
 
+  const handleIntervalChange = (newInterval: string) => {
+    const today = new Date().toISOString().split('T')[0];
+    const { date, count } = intervalChangeLog;
+    
+    // Reset counter if it's a new day
+    if (date !== today) {
+      setIntervalChangeLog({ date: today, count: 0 });
+      setTvInterval(newInterval);
+      return;
+    }
+    
+    // Check if user has exceeded max changes for today
+    if (count >= MAX_INTERVAL_CHANGES_PER_DAY) {
+      setError(`Max ${MAX_INTERVAL_CHANGES_PER_DAY} interval changes per day. Reset tomorrow.`);
+      return;
+    }
+    
+    setError('');
+    setTvInterval(newInterval);
+    setIntervalChangeLog({ date, count: count + 1 });
+  };
+
   const addJournalEntry = () => {
     const ticker = tickerForInput(journalTicker);
     const entryPrice = Number(journalEntryPrice);
@@ -655,7 +780,6 @@ export default function Dashboard() {
     <div className={`${dark ? 'theme-dark' : 'theme-light'} ${compactView ? 'compact-mode' : ''}`}>
       <main>
         <section className="hero panel retro-window">
-          <WindowTitle title="SakuTrader / home / dashboard" />
           <div className="hero-brand">
             <div className="brand-mark" aria-hidden={logoMissing}>
               {logoMissing ? (
@@ -671,6 +795,7 @@ export default function Dashboard() {
             <div>
               <p className="eyebrow">SakuTrader Insight Desk</p>
               <h1>SakuTrader</h1>
+              <p className="owner-name">by Kaarsn</p>
               <p>Decision cockpit untuk saham BEI dengan live signal, trade plan, alert, dan journal.</p>
             </div>
           </div>
@@ -678,8 +803,23 @@ export default function Dashboard() {
             <button className="ghost" onClick={() => setCompactView((v: boolean) => !v)}>
               {compactView ? 'Expand View' : 'Compact View'}
             </button>
-            <button className="mode-toggle" onClick={() => setDark((v: boolean) => !v)}>
-              {dark ? 'Switch to Light' : 'Switch to Dark'}
+            <button 
+              className="mode-toggle" 
+              onClick={() => setDark((v: boolean) => !v)}
+              style={{
+                padding: '10px 16px',
+                fontSize: '0.9rem',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                backgroundColor: '#2A323F',
+                color: '#E8E8E8',
+                border: '2px solid #1a1f2e',
+                borderRadius: '6px',
+                transition: 'all 0.3s ease',
+                boxShadow: '0 2px 6px rgba(0, 0, 0, 0.3)',
+              }}
+            >
+              {dark ? '☀️ Switch to Light' : '🌙 Switch to Dark'}
             </button>
           </div>
         </section>
@@ -730,230 +870,108 @@ export default function Dashboard() {
           </button>
         </section>
 
-        <section className="panel utility-grid retro-window">
-          <WindowTitle title="Tools / watchlist / alert / journal" />
-          <article className="utility-card retro-window sub-window">
-            <WindowTitle title="Watchlist" />
-            <h3>Watchlist</h3>
-            <div className="inline-inputs">
-              <input
-                value={watchlistInput}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setWatchlistInput(e.target.value)}
-                placeholder="Tambah ticker, contoh: BBCA"
-              />
-              <button className="ghost" onClick={addTickerToWatchlist}>Add</button>
-            </div>
-            <div className="inline-inputs">
-              <button className="ghost" onClick={saveCurrentAsWatchlist}>Save Current List</button>
-              <button className="ghost" disabled={!watchlist.length} onClick={applyWatchlistToInput}>Use Watchlist</button>
-            </div>
-            <div className="tag-list">
-              {watchlist.length ? watchlist.map((ticker) => (
-                <span key={ticker} className="tag-pill">
-                  {ticker}
-                  <button onClick={() => removeWatchlistTicker(ticker)}>x</button>
-                </span>
-              )) : <p className="helper-text">Belum ada watchlist tersimpan.</p>}
-            </div>
-          </article>
-
-          <article className="utility-card retro-window sub-window">
-            <WindowTitle title="Price Alerts" />
-            <h3>Price Alerts</h3>
-            <div className="inline-inputs">
-              <input
-                value={alertTicker}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setAlertTicker(e.target.value)}
-                placeholder="Ticker"
-              />
-              <select
-                value={alertDirection}
-                onChange={(e: ChangeEvent<HTMLSelectElement>) => setAlertDirection(e.target.value as PriceAlertDirection)}
-              >
-                <option value="above">Above</option>
-                <option value="below">Below</option>
-              </select>
-              <input
-                value={alertPrice}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setAlertPrice(e.target.value)}
-                placeholder="Target Price"
-              />
-              <button className="ghost" onClick={addPriceAlert}>Add Alert</button>
-            </div>
-            <div className="inline-inputs">
-              <button className="ghost" onClick={requestBrowserPermission} disabled={notificationEnabled}>
-                {notificationEnabled ? 'Notification Enabled' : 'Enable Notification'}
-              </button>
-            </div>
-            <div className="list-scroll">
-              {alerts.length ? alerts.map((alert) => (
-                <div className="list-row" key={alert.id}>
-                  <span>{alert.ticker} {alert.direction === 'above' ? '>=' : '<='} {formatNumber(alert.targetPrice, 0)}</span>
-                  <div className="row-actions">
-                    <button className="ghost" onClick={() => toggleAlertActive(alert.id)}>{alert.active ? 'Pause' : 'Activate'}</button>
-                    <button className="ghost" onClick={() => removeAlert(alert.id)}>Delete</button>
-                  </div>
-                </div>
-              )) : <p className="helper-text">Belum ada alert aktif.</p>}
-            </div>
-            {alertLogs.length ? (
-              <div className="alert-log">
-                {alertLogs.map((log, idx) => <p key={`${log}-${idx}`}>- {log}</p>)}
+        <div style={{ display: 'flex', gap: '16px', height: '420px', width: '100%' }}>
+          {/* TradingView Chart - Left */}
+          <section className="panel tradingview-section retro-window" style={{ flex: '1.5', height: '100%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
+              <WindowTitle title="TradingView Chart" />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <select
+                  value={tvInterval}
+                  onChange={(e) => handleIntervalChange(e.target.value)}
+                  style={{ 
+                    padding: '8px 12px', 
+                    fontSize: '0.9rem', 
+                    cursor: 'pointer',
+                    backgroundColor: '#2A323F',
+                    color: '#E8E8E8',
+                    border: '2px solid #1a1f2e',
+                    borderRadius: '6px',
+                    fontWeight: 'bold',
+                    fontFamily: 'monospace',
+                    minWidth: '100px'
+                  }}
+                >
+                  <option value="D">1 day</option>
+                  <option value="1">1 min</option>
+                  <option value="5">5 min</option>
+                  <option value="15">15 min</option>
+                  <option value="60">1 hour</option>
+                </select>
+                <p style={{ fontSize: '0.75rem', margin: '0', color: '#888' }}>
+                  {intervalChangeLog.count}/{MAX_INTERVAL_CHANGES_PER_DAY}
+                </p>
               </div>
-            ) : null}
-          </article>
+            </div>
+            <div 
+              className="tradingview-widget-container" 
+              style={{ height: '100%', width: '100%' }}
+            >
+              <div 
+                className="tradingview-widget-container__widget" 
+                style={{ height: 'calc(100% - 32px)', width: '100%' }}
+              >
+                <iframe
+                  src={selectedStock ? `https://s.tradingview.com/embed-widget/advanced-chart/?symbol=IDX:${selectedStock.ticker.replace(/\.JK$/, '')}&interval=${tvInterval}&timezone=Asia/Jakarta&theme=dark&style=1&locale=en&withdateranges=1` : 'about:blank'}
+                  width="100%"
+                  height="100%"
+                  style={{ border: 'none' }}
+                  allow="accelerometer; ambient-light-sensor; autoplay; battery; camera; cross-origin-isolated; document-domain; encrypted-media; execution-while-not-rendered; execution-while-out-of-viewport; fullscreen; geolocation; gyroscope; magnetometer; microphone; midi; payment; picture-in-picture; publickey-credentials-get; sync-xhr; usb; xr-spatial-tracking"
+                />
+              </div>
+              <p className="helper-text" style={{ marginTop: '8px', fontSize: '0.75rem' }}>
+                {selectedStock ? `Chart ${displayTicker(selectedStock.ticker)} (${tvInterval === '1' ? '1m' : tvInterval === '5' ? '5m' : tvInterval === '15' ? '15m' : tvInterval === '60' ? '1H' : tvInterval === '240' ? '4H' : tvInterval === 'D' ? 'Daily' : 'Weekly'}) - TradingView | Changes today: ${intervalChangeLog.count}/${MAX_INTERVAL_CHANGES_PER_DAY}` : 'Pilih ticker untuk melihat chart'}
+              </p>
+            </div>
+          </section>
 
-          <article className="utility-card retro-window sub-window">
-            <WindowTitle title="Trade Journal" />
-            <h3>Trade Journal</h3>
-            <div className="inline-inputs">
-              <input
-                value={journalTicker}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setJournalTicker(e.target.value)}
-                placeholder="Ticker"
-              />
-              <input
-                value={journalEntryPrice}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setJournalEntryPrice(e.target.value)}
-                placeholder="Entry Price"
-              />
-              <input
-                value={journalQty}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setJournalQty(e.target.value)}
-                placeholder="Qty"
-              />
+          {/* Top Gainers/Losers - Right */}
+          <article className="utility-card retro-window sub-window top-gainers-card" style={{ flex: '1', height: '100%', overflowY: 'auto', padding: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+              <WindowTitle title="Top Gainers Rank 1-100" />
+              <span
+                style={{
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  color: isIdxMarketOpenNow ? '#26d07c' : '#ff8b8b',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                {isIdxMarketOpenNow ? 'Market Open' : 'Market Closed'}
+              </span>
+              <p className="helper-text" style={{ margin: '0', fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
+                {rankDateLabel} • {rankTimeLabel}
+              </p>
             </div>
-            <div className="inline-inputs">
-              <input
-                value={journalNote}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setJournalNote(e.target.value)}
-                placeholder="Catatan (opsional)"
-              />
-              <button className="ghost" onClick={addJournalEntry}>Add Trade</button>
-            </div>
-            <div className="journal-stats">
-              <span>Closed Trades: {closedJournalEntries.length}</span>
-              <span>Win Rate: {formatNumber(journalWinRate)}%</span>
-              <span className={realizedPnl >= 0 ? 'good' : 'bad'}>Realized P/L: {formatNumber(realizedPnl, 0)}</span>
-            </div>
-            <div className="list-scroll">
-              {journal.length ? journal.map((entry) => {
-                const markPrice = entry.exitPrice ?? latestPriceMap.get(normalizeTicker(entry.ticker));
-                const pnl = typeof markPrice === 'number' ? (markPrice - entry.entryPrice) * entry.quantity : undefined;
-                return (
-                  <div className="list-row" key={entry.id}>
-                    <span>
-                      {entry.ticker} | Entry {formatNumber(entry.entryPrice, 0)} x {entry.quantity} | {entry.exitPrice !== null ? 'Closed' : 'Open'}
-                      {typeof pnl === 'number' ? ` | P/L ${formatNumber(pnl, 0)}` : ''}
-                    </span>
-                    {entry.exitPrice === null ? (
-                      <div className="row-actions">
-                        <button className="ghost" onClick={() => closeJournalEntry(entry.id)}>Close @ Latest</button>
-                        <button className="ghost" onClick={() => removeJournalEntry(entry.id)}>Delete</button>
-                      </div>
-                    ) : (
-                      <div className="row-actions">
-                        <button className="ghost" onClick={() => removeJournalEntry(entry.id)}>Delete</button>
-                      </div>
-                    )}
-                  </div>
-                );
-              }) : <p className="helper-text">Belum ada trade di journal.</p>}
-            </div>
-          </article>
-
-          <article className="utility-card retro-window sub-window top-gainers-card">
-            <WindowTitle title="Top Gainers Rank 1-100" />
-            <h3>Top Gainers (Rank 1-100)</h3>
-            <p className="helper-text">
-              Status: {marketRank?.marketOpen ? 'Market Open' : 'Market Closed'}
+            <h3 style={{ margin: '4px 0 2px 0', fontSize: '0.9rem' }}>Top Gainers (Rank 1-100)</h3>
+            <p className="helper-text" style={{ fontSize: '0.75rem', margin: '2px 0 4px 0' }}>
+              Status: {isIdxMarketOpenNow ? 'Market Open' : 'Market Closed'}
               {' • Sampled: '}{marketRank?.sampled ?? 0}/{marketRank?.universeSize ?? 100}
             </p>
-            <div className="list-scroll rank-scroll">
+            <div className="list-scroll rank-scroll" style={{ maxHeight: '140px', marginBottom: '6px', overflowY: 'auto' }}>
               {topGainers.length ? topGainers.map((item) => (
-                <div className="list-row" key={`${item.ticker}-${item.rank}`}>
-                  <span>
+                <div className="list-row" key={`${item.ticker}-${item.rank}`} style={{ padding: '2px 0' }}>
+                  <span style={{ fontSize: '0.85rem' }}>
                     <strong className="ranking-rank">#{item.rank}</strong> {displayTicker(item.ticker)}
                   </span>
-                  <span className="good">+{formatNumber(item.changePct)}%</span>
+                  <span className="good" style={{ fontSize: '0.85rem' }}>+{formatNumber(item.changePct)}%</span>
                 </div>
               )) : <p className="helper-text">Belum ada saham hijau pada snapshot ini.</p>}
             </div>
-            <h3 style={{ marginTop: '10px' }}>Top Losers (Rank 1-100)</h3>
-            <div className="list-scroll rank-scroll">
+            <h3 style={{ margin: '4px 0 2px 0', fontSize: '0.9rem' }}>Top Losers</h3>
+            <div className="list-scroll rank-scroll" style={{ maxHeight: '140px', overflowY: 'auto' }}>
               {topLosers.length ? topLosers.map((item) => (
-                <div className="list-row" key={`${item.ticker}-${item.rank}-red`}>
-                  <span>
+                <div className="list-row" key={`${item.ticker}-${item.rank}-red`} style={{ padding: '2px 0' }}>
+                  <span style={{ fontSize: '0.85rem' }}>
                     <strong className="ranking-rank">#{item.rank}</strong> {displayTicker(item.ticker)}
                   </span>
-                  <span className="bad">{formatNumber(item.changePct)}%</span>
+                  <span className="bad" style={{ fontSize: '0.85rem' }}>{formatNumber(item.changePct)}%</span>
                 </div>
               )) : <p className="helper-text">Belum ada saham merah pada snapshot ini.</p>}
             </div>
-            {marketRankError ? <p className="warn">{marketRankError}</p> : null}
+            {marketRankError ? <p className="warn" style={{ fontSize: '0.8rem', margin: '4px 0 0 0' }}>{marketRankError}</p> : null}
           </article>
-
-          <article className="utility-card retro-window sub-window risk-card">
-            <WindowTitle title="Risk Position Sizer" />
-            <h3>Risk Position Sizer</h3>
-            <div className="inline-inputs">
-              <input
-                value={riskCapital}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setRiskCapital(formatIdrInput(e.target.value))}
-                placeholder="Total modal (contoh: 3.000.000)"
-              />
-              <input
-                value={riskLots}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setRiskLots(e.target.value.replace(/[^\d]/g, ''))}
-                placeholder="Risk per trade (lot)"
-              />
-            </div>
-            {selectedStock ? (
-              <div className="risk-metrics">
-                <p><strong>Ticker:</strong> {displayTicker(selectedStock.ticker)}</p>
-                {riskSizing ? (
-                  <>
-                    <p><strong>Requested Lot:</strong> {formatNumber(riskSizing.requestedLots, 0)} lot</p>
-                    <p><strong>Executable Lot:</strong> {formatNumber(riskSizing.lots, 0)} lot ({formatNumber(riskSizing.usedShares, 0)} lembar)</p>
-                    <p><strong>Maks Lot by Modal:</strong> {formatNumber(riskSizing.maxAffordableLots, 0)} lot</p>
-                    <p><strong>Entry (midpoint):</strong> {formatNumber(riskSizing.entryPrice, 0)} IDR</p>
-                    <p><strong>Cut Loss:</strong> {formatNumber(riskSizing.cutLoss, 0)} IDR</p>
-                    <p><strong>Risk/Share:</strong> {formatNumber(riskSizing.riskPerShare, 0)} IDR</p>
-                    <p><strong>Nilai Posisi:</strong> {formatNumber(riskSizing.positionValue, 0)} IDR</p>
-                    <p><strong>Penggunaan Modal:</strong> {formatNumber(riskSizing.capitalUsagePct)}%</p>
-                    <p><strong>Actual Risk:</strong> {formatNumber(riskSizing.actualRisk, 0)} IDR</p>
-                    <p><strong>Est. Reward ke TP1:</strong> {riskSizing.rewardPct !== null ? `${formatNumber(riskSizing.rewardPct)}%` : '-'}</p>
-                    {riskSizing.requestedLots > riskSizing.maxAffordableLots ? (
-                      <p className="warn">Lot diminta melebihi modal, otomatis disesuaikan ke lot maksimal yang mampu dibeli.</p>
-                    ) : null}
-                    {riskSizing.lots < 1 ? <p className="warn">Modal belum cukup untuk 1 lot pada harga entry saat ini.</p> : null}
-                    <p className="helper-text">Catatan: kalkulasi ini belum menghitung biaya broker, levy bursa, PPN, dan pajak final.</p>
-                  </>
-                ) : (
-                  <p className="helper-text">Isi modal & lot, dan pastikan trade plan punya cut loss.</p>
-                )}
-              </div>
-            ) : (
-              <p className="helper-text">Pilih ticker dulu untuk hitung sizing.</p>
-            )}
-          </article>
-
-          <article className="utility-card retro-window sub-window longterm-card">
-            <WindowTitle title="Long-Term Picks + Entry" />
-            <h3>Long-Term Picks + Entry</h3>
-            <div className="list-scroll rank-scroll">
-              {longTermCandidates.length ? longTermCandidates.map((item, idx) => (
-                <div className="list-row" key={`${item.ticker}-${idx}`}>
-                  <span>
-                    <strong>{displayTicker(item.ticker)}</strong>
-                    {' | Entry: '}{item.entryText}
-                  </span>
-                  <span>Score {item.score}</span>
-                </div>
-              )) : <p className="helper-text">Belum ada kandidat long-term. Coba tambah ticker lalu Analyze.</p>}
-            </div>
-          </article>
-        </section>
+        </div>
 
         {error ? <p className="error panel">{error}</p> : null}
 
@@ -1258,11 +1276,20 @@ export default function Dashboard() {
                   </div>
                   
                   {typeof selectedStock.aiInsight === 'object' && selectedStock.aiInsight?.topNews && selectedStock.aiInsight.topNews.length > 0 && (
-                    <div style={{ marginBottom: '1rem', padding: '0.5rem', backgroundColor: '#f0f0f0', borderRadius: '4px' }}>
+                    <div
+                      style={{
+                        marginBottom: '1rem',
+                        padding: '0.5rem',
+                        backgroundColor: dark ? '#2a323f' : '#f0f0f0',
+                        color: dark ? '#fff6b8' : '#1d232d',
+                        border: dark ? '1px solid #58647a' : '1px solid #d9d9d9',
+                        borderRadius: '4px'
+                      }}
+                    >
                       <p><strong>Berita Terkait:</strong></p>
                       <ul style={{ margin: '0.5rem 0', paddingLeft: '1.5rem' }}>
                         {selectedStock.aiInsight.topNews.map((news, idx) => (
-                          <li key={idx} style={{ fontSize: '0.85rem', marginBottom: '0.3rem' }}>
+                          <li key={idx} style={{ fontSize: '0.85rem', marginBottom: '0.3rem', color: dark ? '#fff6b8' : '#1d232d' }}>
                             {news.title} <em>({news.date || 'N/A'})</em>
                           </li>
                         ))}
@@ -1271,11 +1298,45 @@ export default function Dashboard() {
                   )}
                   
                   {typeof selectedStock.aiInsight === 'object' && selectedStock.aiInsight?.outlook && (
-                    <div style={{ padding: '0.5rem', backgroundColor: '#ffffcc', borderRadius: '4px', borderLeft: '3px solid #ff9900' }}>
+                    <div
+                      style={{
+                        marginBottom: '0.7rem',
+                        padding: '0.5rem',
+                        backgroundColor: dark ? '#2f3949' : '#ffffcc',
+                        color: dark ? '#fff6b8' : '#1d232d',
+                        borderRadius: '4px',
+                        borderLeft: `3px solid ${dark ? '#f0d24f' : '#ff9900'}`
+                      }}
+                    >
                       <p><strong>📈 Prospek Ke Depan (1-3 hari):</strong></p>
-                      <p style={{ fontSize: '0.9rem', marginTop: '0.3rem' }}>{selectedStock.aiInsight.outlook}</p>
+                      <p style={{ fontSize: '0.9rem', marginTop: '0.3rem', color: dark ? '#fff6b8' : '#1d232d' }}>{selectedStock.aiInsight.outlook}</p>
                     </div>
                   )}
+
+                  <div
+                    style={{
+                      marginBottom: '0.7rem',
+                      padding: '0.5rem',
+                      backgroundColor: dark ? '#243040' : '#eef7ff',
+                      color: dark ? '#fff6b8' : '#1d232d',
+                      borderRadius: '4px',
+                      borderLeft: `3px solid ${dark ? '#79d9c9' : '#2f7fd1'}`
+                    }}
+                  >
+                    <p><strong>📊 Prospek 1-3 Bulan:</strong></p>
+                    <p style={{ fontSize: '0.9rem', marginTop: '0.3rem', color: dark ? '#fff6b8' : '#1d232d' }}>{mediumTermOutlook}</p>
+                  </div>
+
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: '0.8rem',
+                      fontStyle: 'italic',
+                      color: dark ? '#e6d96a' : '#5d6775'
+                    }}
+                  >
+                    AI ini hanya sebagai insight, keputusan akhir ada di pengguna.
+                  </p>
                 </article>
               </section>
             ) : null}
@@ -1283,14 +1344,21 @@ export default function Dashboard() {
         ) : null}
 
         <footer className="panel retro-window footer-section">
-          <WindowTitle title="SakuTrader Footer" />
+          <WindowTitle title="" />
           <div className="footer-content">
             <p className="copyright">© 2026 Arya Dilla. All rights reserved.</p>
-            <p className="powered-by">GitHub: <a className="footer-link" href="https://github.com/Kaarsn" target="_blank" rel="noreferrer">github.com/Kaarsn</a></p>
-            <p className="powered-by">Powered by AI-driven technical analysis, Golden/Death Cross detection, and multi-timeframe insights.</p>
-            <p className="roadmap">🚀 Upcoming: LLM-powered financial report analysis, earnings insights, and fundamental analysis.</p>
+            <a className="profile-follow-card" href="https://github.com/Kaarsn" target="_blank" rel="noreferrer" style={{ marginTop: '8px' }}>
+              <img className="profile-photo" src="/kaars-avatar.svg" alt="Kaars profile" />
+              <span className="profile-meta">
+                <strong>Kaarsn</strong>
+                <small>Creator • GitHub</small>
+              </span>
+              <span className="profile-follow-btn">Follow</span>
+            </a>
+            <p className="upcoming-feature">Upcoming Feature: LLM-powered financial report analysis, earnings insights, and deeper fundamental scoring.</p>
           </div>
         </footer>
+
       </main>
     </div>
   );

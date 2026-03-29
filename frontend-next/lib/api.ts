@@ -117,6 +117,9 @@ export type StockResult = {
       date?: string;
     }[];
     outlook?: string;
+    mediumOutlook?: string;
+    outlook1To3Months?: string;
+    outlook_1_3_month?: string;
   };
   sentiment: string;
   recommendation: 'BUY' | 'HOLD' | 'SELL';

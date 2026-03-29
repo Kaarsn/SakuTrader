@@ -15,9 +15,9 @@ export default function StockCharts({ candles, ticker, dark }: Props) {
   const times = candles.map((c) => c.time);
 
   const palette = {
-    font: '#25343a',
-    grid: 'rgba(64, 72, 84, 0.18)',
-    axis: 'rgba(48, 56, 64, 0.5)',
+    font: dark ? '#fff2a8' : '#25343a',
+    grid: dark ? 'rgba(148, 163, 184, 0.22)' : 'rgba(64, 72, 84, 0.18)',
+    axis: dark ? 'rgba(186, 201, 223, 0.6)' : 'rgba(48, 56, 64, 0.5)',
     ma20: '#f97316',
     ma50: '#16a34a',
     rsi: '#2563eb',

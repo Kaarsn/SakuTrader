@@ -242,13 +242,61 @@ function buildOutlook({ technical, sentiment, priceChangePct }) {
   return outlook;
 }
 
+function buildMediumOutlook({ technical, sentiment, recommendation = 'HOLD' }) {
+  const normalizedSentiment = normalizeSentiment(sentiment);
+  const rsiSignal = technical?.signals?.rsiSignal || 'neutral';
+  const trendSignal = technical?.signals?.trendSignal || 'downtrend';
+  const macdSignal = technical?.signals?.macdSignal || 'bearish';
+
+  if (recommendation === 'BUY' && trendSignal === 'uptrend' && macdSignal === 'bullish') {
+    let text = 'Prospek 1-3 bulan cenderung bullish moderat selama harga tetap di atas area support menengah dan volume tidak melemah tajam.';
+    if (rsiSignal === 'overbought') {
+      text += ' Namun, karena RSI sempat tinggi, skenario sehatnya adalah kenaikan bertahap diselingi fase konsolidasi.';
+    }
+    if (normalizedSentiment === 'Positive') {
+      text += ' Sentimen positif menjadi katalis tambahan untuk melanjutkan tren.';
+    }
+    return text;
+  }
+
+  if (recommendation === 'SELL' || (trendSignal === 'downtrend' && macdSignal === 'bearish')) {
+    let text = 'Prospek 1-3 bulan masih cenderung defensif karena struktur tren belum pulih dan risiko lanjutan penurunan masih terbuka.';
+    if (rsiSignal === 'oversold') {
+      text += ' Rebound teknikal tetap mungkin terjadi, namun selama belum ada konfirmasi pembalikan tren, rebound lebih cocok dipandang sebagai relief rally.';
+    }
+    if (normalizedSentiment === 'Negative') {
+      text += ' Sentimen negatif meningkatkan peluang tekanan harga berlanjut.';
+    }
+    return text;
+  }
+
+  let neutralText = 'Prospek 1-3 bulan cenderung sideways dengan bias selektif; peluang ada, tetapi memerlukan konfirmasi breakout dan konsistensi volume.';
+  if (normalizedSentiment === 'Positive') {
+    neutralText += ' Sentimen positif menjaga peluang upside bertahap.';
+  } else if (normalizedSentiment === 'Negative') {
+    neutralText += ' Sentimen negatif menahan akselerasi kenaikan.';
+  }
+  return neutralText;
+}
+
 export async function generateAiInsight({ ticker, technical, news, priceChangePct = 0 }) {
+  const inferRecommendation = () => {
+    const trendSignal = technical?.signals?.trendSignal || 'downtrend';
+    const macdSignal = technical?.signals?.macdSignal || 'bearish';
+    const normalizedSentiment = normalizeSentiment(fallbackSentiment(news));
+
+    if (trendSignal === 'uptrend' && macdSignal === 'bullish' && normalizedSentiment !== 'Negative') return 'BUY';
+    if (trendSignal === 'downtrend' && macdSignal === 'bearish' && normalizedSentiment !== 'Positive') return 'SELL';
+    return 'HOLD';
+  };
+
   const fallbackInsight = (sentiment) => ({
     sentiment,
     insight: buildLogicalConclusion({ ticker, technical, sentiment }),
     causes: buildPriceMovementCauses({ technical, news, priceChangePct }),
     topNews: (news || []).slice(0, 3),
-    outlook: buildOutlook({ technical, sentiment, priceChangePct })
+    outlook: buildOutlook({ technical, sentiment, priceChangePct }),
+    mediumOutlook: buildMediumOutlook({ technical, sentiment, recommendation: inferRecommendation() })
   });
 
   if (!client) {
@@ -266,7 +314,7 @@ export async function generateAiInsight({ ticker, technical, news, priceChangePc
     `Jelaskan dalam Bahasa Indonesia yang jelas, logis, dan mudah dipakai trader ritel.`,
     `Insight wajib berisi: (1) ringkasan teknikal, (2) kaitan dengan sentimen berita, (3) kesimpulan aksi praktis.`,
     `Gunakan format kalimat seperti: "Kesimpulan <ticker>: ... Aksi disarankan: ..."`,
-    `Return strict JSON with keys: sentiment (Positive|Neutral|Negative), insight (maks 4 kalimat), causes (penyebab gerakan harga), outlook (prospek 1-3 hari ke depan).`
+    `Return strict JSON with keys: sentiment (Positive|Neutral|Negative), insight (maks 4 kalimat), causes (penyebab gerakan harga), outlook (prospek 1-3 hari ke depan), mediumOutlook (prospek 1-3 bulan ke depan).`
   ].join('\n');
 
   try {
@@ -287,13 +335,15 @@ export async function generateAiInsight({ ticker, technical, news, priceChangePc
     const insight = parsed.insight || buildLogicalConclusion({ ticker, technical, sentiment });
     const causes = parsed.causes || buildPriceMovementCauses({ technical, news, priceChangePct });
     const outlook = parsed.outlook || buildOutlook({ technical, sentiment, priceChangePct });
+    const mediumOutlook = parsed.mediumOutlook || parsed.outlook1To3Months || buildMediumOutlook({ technical, sentiment, recommendation: parsed.verdict || 'HOLD' });
 
     return {
       sentiment,
       insight,
       causes,
       topNews: (news || []).slice(0, 3),
-      outlook
+      outlook,
+      mediumOutlook
     };
   } catch (error) {
     const sentiment = fallbackSentiment(news);
