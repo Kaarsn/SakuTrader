@@ -78,6 +78,10 @@ function buildLogicalConclusion({ ticker, technical, sentiment }) {
 function extractNewsDrivers(news) {
   if (!news || news.length === 0) return [];
   
+  // Only process real news, skip fallback news
+  const realNews = news.filter(n => !n.isFallback);
+  if (realNews.length === 0) return [];
+  
   const drivers = [];
   const positiveKeywords = ['naik', 'up', 'gain', 'profit', 'laba', 'revenue', 'growth', 'kuat', 'strong', 
                            'dapat', 'dapat kontrak', 'memenangkan', 'beli', 'akuisisi', 'merger', 
@@ -88,7 +92,7 @@ function extractNewsDrivers(news) {
                            'denda', 'penalti', 'henti', 'berhenti', 'kegagalan', 'gagal', 
                            'undur', 'kurangi', 'setback', 'masalah'];
   
-  news.slice(0, 5).forEach(item => {
+  realNews.slice(0, 5).forEach(item => {
     const textLower = `${item.title} ${item.summary}`.toLowerCase();
     
     // Extract key business drivers
@@ -190,10 +194,13 @@ function buildPriceMovementCauses({ technical, news, priceChangePct }) {
     }
   }
   
-  // Add top news as reference
+  // Add top news as reference only if real news exists
   if (news && news.length > 0) {
     const topNews = news[0];
-    causes.push(`(Berita: ${topNews.title.substring(0, 60)}${topNews.title.length > 60 ? '...' : ''})`);
+    // Only add berita reference if it's not a generic/fallback news
+    if (!topNews.isFallback) {
+      causes.push(`📰 Berita: ${topNews.title.substring(0, 70)}${topNews.title.length > 70 ? '...' : ''}`);
+    }
   }
   
   return causes.length > 0 ? causes.join('; ') : 'Pergerakan normal dalam range trading historis.';

@@ -22,35 +22,37 @@ const COMPANY_ALIASES = {
 
 /**
  * Main function - fetch news for a ticker
- * Priority: Finnhub -> NewsAPI -> Yahoo Finance -> Generic market news
+ * Priority: Finnhub -> NewsAPI -> Empty (no fake generic news)
+ * Only return REAL news from actual APIs, don't use generic fallback
  */
 export async function fetchNewsForTicker(ticker) {
   const symbol = ticker.replace('.JK', '');
 
   try {
     // Priority 1: Finnhub (free, reliable global stocks)
-    console.log(`[NEWS] Trying Finnhub for ${symbol}...`);
+    console.log(`[NEWS] Fetching from Finnhub for ${symbol}...`);
     const finnhubNews = await fetchFromFinnhub(symbol);
     if (finnhubNews.length > 0) {
-      console.log(`[NEWS] Found ${finnhubNews.length} articles from Finnhub`);
+      console.log(`[NEWS] ✓ Found ${finnhubNews.length} real articles from Finnhub for ${symbol}`);
       return finnhubNews;
     }
 
     // Priority 2: NewsAPI
-    console.log(`[NEWS] Finnhub returned nothing, trying NewsAPI for ${symbol}...`);
+    console.log(`[NEWS] Trying NewsAPI for ${symbol}...`);
     const newsApiNews = await fetchFromNewsAPI(symbol);
     if (newsApiNews.length > 0) {
-      console.log(`[NEWS] Found ${newsApiNews.length} articles from NewsAPI`);
+      console.log(`[NEWS] ✓ Found ${newsApiNews.length} real articles from NewsAPI for ${symbol}`);
       return newsApiNews;
     }
 
-    // Priority 3: Generic market news fallback
-    console.log(`[NEWS] No real news found, using generic market news for ${symbol}`);
-    return getGenericMarketNews();
+    // No real news found - return empty array instead of generic fallback
+    console.log(`[NEWS] ✗ No real news found for ${symbol} from any source`);
+    return [];
 
   } catch (error) {
     console.log(`[NEWS] Error fetching news for ${ticker}: ${error.message}`);
-    return getGenericMarketNews();
+    // Return empty array instead of generic fallback
+    return [];
   }
 }
 
