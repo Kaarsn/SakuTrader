@@ -902,7 +902,7 @@ export default function Dashboard() {
                             {news.isFallback ? <span className="fallback-badge">Generated</span> : null}
                           </div>
                           <p className="news-summary">{news.summary}</p>
-                          {news.url && !news.isFallback ? (
+                          {news.url ? (
                             <a href={news.url} target="_blank" rel="noopener noreferrer" className="news-link">
                               Baca Selengkapnya →
                             </a>
