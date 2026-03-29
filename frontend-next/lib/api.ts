@@ -149,35 +149,30 @@ export type AnalysisResponse = {
   cached: boolean;
 };
 
-// Dynamically detect API base URL
+// Lazily compute API base URL (evaluated at request time, not module load time)
 function getApiBase(): string {
   // If explicitly set in env, use it
   if (process.env.NEXT_PUBLIC_API_BASE) {
     return process.env.NEXT_PUBLIC_API_BASE;
   }
   
-  // Browser-side detection: use same hostname as frontend
-  // This allows tablet/phone to access from different IP addresses
-  if (typeof window !== 'undefined') {
+  // Only try window detection in browser environment
+  if (typeof window !== 'undefined' && window.location) {
     const hostname = window.location.hostname;
     const port = 4000;
-    
-    // If tablet/phone akses dari IP address berbeda, this will work
-    // If localhost, juga work karena pakai window.location.hostname
     return `http://${hostname}:${port}`;
   }
   
-  // Server-side fallback
+  // Server-side or fallback
   return 'http://localhost:4000';
 }
-
-const API_BASE = getApiBase();
 
 export async function requestAnalysis(
   tickers: string[],
   timeframe: string,
   strategy: 'scalp' | 'balanced' | 'swing' = 'balanced'
 ): Promise<AnalysisResponse> {
+  const API_BASE = getApiBase();
   const response = await fetch(`${API_BASE}/api/analysis`, {
     method: 'POST',
     headers: {
@@ -195,6 +190,7 @@ export async function requestAnalysis(
 }
 
 export async function exportAnalysis(data: AnalysisResponse, format: 'json' | 'csv') {
+  const API_BASE = getApiBase();
   const response = await fetch(`${API_BASE}/api/analysis/export`, {
     method: 'POST',
     headers: {
