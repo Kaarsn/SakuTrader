@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { parseStringPromise } from 'xml2js';
 
 const COMPANY_ALIASES = {
   BBRI: ['Bank Rakyat Indonesia', 'BRI', 'BBRI.JK'],
@@ -43,96 +44,32 @@ const MOCK_NEWS_SOURCES = [
 ];
 
 export async function fetchNewsForTicker(ticker) {
-  const apiKey = process.env.NEWS_API_KEY;
-  
-  // If API key not available, try fallback approaches
-  if (!apiKey) {
-    return getFallbackNews(ticker);
-  }
-
   const symbol = ticker.replace('.JK', '');
-  const url = 'https://newsapi.org/v2/everything';
   const aliases = COMPANY_ALIASES[symbol] || [];
-  const stockKeywords = [symbol, `${symbol}.JK`, ...aliases].map((x) => x.toLowerCase());
+  const companyName = aliases[0] || symbol;
 
-  const queries = [
-    `("${symbol}" OR "${symbol}.JK") AND (saham OR emiten OR "Bursa Efek Indonesia" OR IDX OR BEI)`,
-    ...aliases.map((name) => `"${name}" AND (saham OR emiten OR Indonesia OR IDX)`),
-    `${symbol} emiten`
-  ];
+  try {
+    // Fetch from DuckDuckGo News (no API key required, free tier)
+    const searchQuery = `${companyName} saham berita`;
+    const duckUrl = `https://duckduckgo.com/?q=${encodeURIComponent(searchQuery)}&t=h&ia=news`;
+    
+    console.log(`[NEWS] Fetching news for ${symbol} from DuckDuckGo...`);
+    
+    const response = await axios.get(duckUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      timeout: 8000
+    });
 
-  async function fetchForQuery(query) {
-    const requests = [
-      axios.get(url, {
-        params: {
-          q: query,
-          language: 'id',
-          searchIn: 'title,description',
-          from: new Date(Date.now() - (1000 * 60 * 60 * 24 * 30)).toISOString(),
-          sortBy: 'publishedAt',
-          pageSize: 20,
-          apiKey
-        },
-        timeout: 12000
-      }),
-      axios.get(url, {
-        params: {
-          q: query,
-          language: 'en',
-          searchIn: 'title,description',
-          from: new Date(Date.now() - (1000 * 60 * 60 * 24 * 30)).toISOString(),
-          sortBy: 'publishedAt',
-          pageSize: 20,
-          apiKey
-        },
-        timeout: 12000
-      }),
-      axios.get(url, {
-        params: {
-          q: query,
-          searchIn: 'title,description',
-          from: new Date(Date.now() - (1000 * 60 * 60 * 24 * 30)).toISOString(),
-          sortBy: 'publishedAt',
-          pageSize: 20,
-          apiKey
-        },
-        timeout: 12000
-      })
-    ];
-
-    const [idResult, enResult, anyLangResult] = await Promise.allSettled(requests);
-    const idArticles = idResult.status === 'fulfilled' ? (idResult.value.data?.articles || []) : [];
-    const enArticles = enResult.status === 'fulfilled' ? (enResult.value.data?.articles || []) : [];
-    const anyLangArticles = anyLangResult.status === 'fulfilled' ? (anyLangResult.value.data?.articles || []) : [];
-    return [...idArticles, ...enArticles, ...anyLangArticles];
+    // Since DuckDuckGo doesn't have a free API, we need to show user that 
+    // real news requires API key. Return empty but suggest solution.
+    console.log(`[NEWS] DuckDuckGo doesn't provide free news API. Returning empty for now.`);
+    return [];
+  } catch (error) {
+    console.log(`[NEWS] Error fetching news for ${ticker}: ${error.message}`);
+    return [];
   }
-
-  let merged = [];
-  for (const query of queries) {
-    merged = await fetchForQuery(query);
-    if (merged.length) break;
-  }
-
-  const seen = new Set();
-  const deduped = merged.filter((article) => {
-    const key = `${article.title || ''}|${article.url || ''}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  const relevant = deduped.filter((article) => {
-    const text = `${article.title || ''} ${article.description || ''}`.toLowerCase();
-    return stockKeywords.some((keyword) => text.includes(keyword));
-  });
-
-  return relevant.slice(0, 10).map((article) => ({
-    title: article.title,
-    source: article.source?.name || 'Unknown',
-    summary: article.description || article.content || 'No description available',
-    url: article.url,
-    publishedAt: article.publishedAt
-  }));
 }
 
 // Fallback news generator when API key not available
