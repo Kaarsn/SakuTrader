@@ -37,42 +37,32 @@ function buildLogicalConclusion({ ticker, technical, sentiment }) {
   const macdSignal = technical?.signals?.macdSignal || 'bearish';
   const normalizedSentiment = normalizeSentiment(sentiment);
 
-  const rsiText =
-    rsiSignal === 'overbought'
-      ? 'RSI berada di area overbought (risiko pullback meningkat).'
-      : rsiSignal === 'oversold'
-        ? 'RSI berada di area oversold (potensi technical rebound ada).'
-        : 'RSI berada di area netral.';
-
   const trendText = trendSignal === 'uptrend'
-    ? 'Harga masih berada di atas rata-rata pergerakan utama (bias tren naik).'
-    : 'Harga masih berada di bawah rata-rata pergerakan utama (bias tren turun).';
+    ? 'Kondisi utama: tren cenderung naik dengan struktur harga relatif kuat.'
+    : 'Kondisi utama: tren masih rentan turun dan perlu konfirmasi pembalikan.';
 
-  const macdText = macdSignal === 'bullish'
-    ? 'MACD menunjukkan momentum bullish.'
-    : 'MACD menunjukkan momentum bearish.';
+  const signalText = rsiSignal === 'overbought'
+    ? 'Sinyal teknikal: RSI overbought, rawan pullback meski momentum masih hidup.'
+    : rsiSignal === 'oversold'
+      ? 'Sinyal teknikal: RSI oversold, peluang technical rebound tetap terbuka.'
+      : macdSignal === 'bullish'
+        ? 'Sinyal teknikal: MACD bullish dengan momentum kenaikan bertahap.'
+        : 'Sinyal teknikal: MACD bearish dan momentum belum stabil.';
 
-  const newsText = normalizedSentiment === 'Positive'
-    ? 'Sentimen berita cenderung positif.'
+  const sentimentText = normalizedSentiment === 'Positive'
+    ? 'Sentimen berita mendukung skenario kenaikan.'
     : normalizedSentiment === 'Negative'
-      ? 'Sentimen berita cenderung negatif.'
-      : 'Sentimen berita cenderung netral.';
+      ? 'Sentimen berita menambah risiko tekanan harga.'
+      : 'Sentimen berita masih netral dan belum jadi katalis kuat.';
 
-  let action = 'wait and see dengan ukuran posisi kecil.';
+  let action = 'Aksi: tunggu konfirmasi level kunci sebelum menambah posisi.';
   if (trendSignal === 'uptrend' && macdSignal === 'bullish' && normalizedSentiment !== 'Negative') {
-    action = 'boleh pertimbangkan buy bertahap, tetap disiplin stop-loss.';
+    action = 'Aksi: buy bertahap di area support dengan stop loss disiplin.';
   } else if (trendSignal === 'downtrend' && macdSignal === 'bearish' && normalizedSentiment !== 'Positive') {
-    action = 'lebih aman hold ketat / reduce posisi, hindari entry agresif dulu.';
+    action = 'Aksi: prioritaskan proteksi modal dan hindari entry agresif.';
   }
 
-  return [
-    `Kesimpulan ${ticker}:`,
-    rsiText,
-    trendText,
-    macdText,
-    newsText,
-    `Aksi disarankan: ${action}`
-  ].join(' ');
+  return `Kesimpulan ${ticker}: ${trendText} ${signalText} ${sentimentText} ${action}`;
 }
 
 function extractNewsDrivers(news) {
@@ -312,8 +302,9 @@ export async function generateAiInsight({ ticker, technical, news, priceChangePc
     `Indicators: RSI=${technical.indicators.rsi}, MACD=${technical.indicators.macd}, MA20=${technical.indicators.ma20}, MA50=${technical.indicators.ma50}`,
     `News: ${JSON.stringify(news)}`,
     `Jelaskan dalam Bahasa Indonesia yang jelas, logis, dan mudah dipakai trader ritel.`,
-    `Insight wajib berisi: (1) ringkasan teknikal, (2) kaitan dengan sentimen berita, (3) kesimpulan aksi praktis.`,
+    `Insight wajib berisi: (1) kondisi trend utama, (2) sinyal teknikal paling penting, (3) rekomendasi aksi praktis.`,
     `Gunakan format kalimat seperti: "Kesimpulan <ticker>: ... Aksi disarankan: ..."`,
+    `Gunakan Bahasa Indonesia, ringkas 3-4 kalimat, hindari kalimat teknis terlalu panjang.`,
     `Return strict JSON with keys: sentiment (Positive|Neutral|Negative), insight (maks 4 kalimat), causes (penyebab gerakan harga), outlook (prospek 1-3 hari ke depan), mediumOutlook (prospek 1-3 bulan ke depan).`
   ].join('\n');
 

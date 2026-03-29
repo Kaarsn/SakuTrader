@@ -133,6 +133,158 @@ function buildTradeConclusion({ indicatorStatus, recommendation, sentiment }) {
   return score >= 1 ? 'GOOD' : 'BAD';
 }
 
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function computeVolatilityPct(candles = []) {
+  const recent = candles.slice(-12);
+  if (recent.length < 2) return 1.8;
+
+  let total = 0;
+  let count = 0;
+  for (let i = 1; i < recent.length; i += 1) {
+    const prev = Number(recent[i - 1]?.close);
+    const curr = Number(recent[i]?.close);
+    if (Number.isFinite(prev) && Number.isFinite(curr) && prev !== 0) {
+      total += Math.abs((curr - prev) / prev) * 100;
+      count += 1;
+    }
+  }
+
+  if (!count) return 1.8;
+  return total / count;
+}
+
+function buildDecisionIntelligence({ technical, latestPrice, recommendation, sentiment, tradePlan }) {
+  const indicators = technical?.indicators || {};
+  const signals = technical?.signals || {};
+  const candles = technical?.candles || [];
+
+  const rsi = Number(indicators.rsi);
+  const ma20 = Number(indicators.ma20);
+  const ma50 = Number(indicators.ma50);
+  const volumeRatio = Number(signals.volumeRatio);
+  const macdSignal = signals.macdSignal;
+  const trendSignal = signals.trendSignal;
+  const normalizedSentiment = String(sentiment || 'Neutral').toLowerCase();
+
+  const recentCandles = candles.slice(-20);
+  const support = recentCandles.length
+    ? Math.min(...recentCandles.map((c) => Number(c?.low)).filter((v) => Number.isFinite(v)))
+    : Number(latestPrice);
+  const resistance = recentCandles.length
+    ? Math.max(...recentCandles.map((c) => Number(c?.high)).filter((v) => Number.isFinite(v)))
+    : Number(latestPrice);
+
+  const nearSupport = Number.isFinite(support) && support > 0
+    ? Math.abs(((Number(latestPrice) - support) / support) * 100) <= 1.8
+    : false;
+  const nearResistance = Number.isFinite(resistance) && resistance > 0
+    ? Math.abs(((resistance - Number(latestPrice)) / resistance) * 100) <= 1.8
+    : false;
+
+  const rsiStrength = !Number.isFinite(rsi)
+    ? 50
+    : (rsi <= 30 || rsi >= 70)
+      ? 85
+      : (rsi <= 40 || rsi >= 60)
+        ? 70
+        : 55;
+  const macdStrength = macdSignal === 'bullish' || macdSignal === 'bearish' ? 78 : 52;
+  const maAlignmentStrength = Number.isFinite(ma20) && Number.isFinite(ma50)
+    ? (ma20 > ma50 ? 78 : ma20 < ma50 ? 72 : 55)
+    : 55;
+  const volumeStrength = Number.isFinite(volumeRatio)
+    ? clampNumber(50 + (volumeRatio - 1) * 60, 35, 95)
+    : (signals.volumeStrong === 'yes' ? 75 : 55);
+
+  const confidenceScore = Math.round(clampNumber(
+    (rsiStrength * 0.25) + (macdStrength * 0.25) + (maAlignmentStrength * 0.3) + (volumeStrength * 0.2),
+    40,
+    97
+  ));
+
+  let riskRaw = 50;
+  const volatilityPct = computeVolatilityPct(candles);
+  riskRaw += volatilityPct * 8;
+  if (rsi >= 72 || rsi <= 28) riskRaw += 8;
+  if (signals.bbSqueeze === 'squeeze') riskRaw += 6;
+  if (Number.isFinite(volumeRatio) && volumeRatio < 0.9) riskRaw += 6;
+  if (tradePlan?.cutLoss && latestPrice && tradePlan.cutLoss > latestPrice * 0.98) riskRaw += 4;
+  const riskScore = Math.round(clampNumber(riskRaw, 20, 95));
+  const riskLevel = riskScore < 40 ? 'Low' : riskScore < 68 ? 'Medium' : 'High';
+
+  let bullishProbability = 50;
+  if (recommendation === 'BUY') bullishProbability += 14;
+  if (recommendation === 'SELL') bullishProbability -= 14;
+  if (trendSignal === 'uptrend') bullishProbability += 10;
+  if (trendSignal === 'downtrend') bullishProbability -= 10;
+  if (macdSignal === 'bullish') bullishProbability += 10;
+  if (macdSignal === 'bearish') bullishProbability -= 10;
+  if (Number.isFinite(ma20) && Number.isFinite(ma50) && ma20 > ma50) bullishProbability += 8;
+  if (Number.isFinite(ma20) && Number.isFinite(ma50) && ma20 < ma50) bullishProbability -= 8;
+  if (Number.isFinite(rsi) && rsi < 30 && nearSupport) bullishProbability += 8;
+  if (Number.isFinite(rsi) && rsi > 70 && nearResistance) bullishProbability -= 8;
+  if (normalizedSentiment.includes('positive')) bullishProbability += 5;
+  if (normalizedSentiment.includes('negative')) bullishProbability -= 5;
+  bullishProbability = Math.round(clampNumber(bullishProbability, 5, 95));
+  const bearishProbability = 100 - bullishProbability;
+
+  let quickCall = 'WAIT';
+  if (bullishProbability >= 76 && riskLevel !== 'High') quickCall = 'STRONG BUY';
+  else if (bullishProbability >= 60) quickCall = 'BUY';
+  else if (bearishProbability >= 76 && riskLevel !== 'Low') quickCall = 'AVOID';
+  else if (bearishProbability >= 60) quickCall = 'SELL';
+
+  const quickReasons = {
+    'STRONG BUY': 'Momentum bullish terkonfirmasi volume, peluang lanjut naik lebih dominan.',
+    BUY: 'Struktur teknikal mendukung entry bertahap dengan risiko terukur.',
+    WAIT: 'Sinyal campuran, tunggu breakout atau retest level kunci dulu.',
+    SELL: 'Tekanan bearish dominan, peluang turun masih lebih besar.',
+    AVOID: 'Risiko tinggi dan arah lemah, sebaiknya hindari entry dulu.'
+  };
+
+  const entryDisplay = tradePlan?.entryZone
+    ? `${Math.round(tradePlan.entryZone.low)}-${Math.round(tradePlan.entryZone.high)}`
+    : 'market';
+
+  const scenarios = [
+    `Jika harga tembus ${Math.round(resistance)} dengan volume kuat, bias lanjut bullish.` ,
+    `Jika harga gagal bertahan di ${Math.round(support)}, bias lanjut bearish.` ,
+    `Jika sideway di antara level kunci, fokus buy di ${entryDisplay} dengan risiko ketat.`
+  ];
+
+  const edgeSmartMoney = Math.round(clampNumber((bullishProbability * 0.55) + (volumeStrength * 0.45), 0, 100));
+  const fakeBreakoutRisk = Math.round(clampNumber(
+    (nearResistance ? 25 : 10) + (rsi > 68 ? 20 : 8) + (Number.isFinite(volumeRatio) && volumeRatio < 1 ? 25 : 10),
+    0,
+    100
+  ));
+
+  const oneLineInsight = quickCall === 'SELL' || quickCall === 'AVOID'
+    ? 'Tren melemah, utamakan proteksi modal dan hindari entry agresif.'
+    : quickCall === 'WAIT'
+      ? 'Saham netral, tunggu konfirmasi breakout sebelum ambil posisi baru.'
+      : 'Saham berpeluang lanjut naik, cocok untuk entry bertahap terukur.';
+
+  return {
+    quickCall,
+    quickReason: quickReasons[quickCall],
+    confidenceScore,
+    riskLevel,
+    bullishProbability,
+    bearishProbability,
+    scenarios,
+    oneLineInsight,
+    edgeIndicators: {
+      smartMoneyFlowScore: edgeSmartMoney,
+      fakeBreakoutRisk,
+      volumeSpikeAlert: signals.volumeStrong === 'yes' || (Number.isFinite(volumeRatio) && volumeRatio >= 1.4)
+    }
+  };
+}
+
 function buildTechnicalConclusion(indicatorStatus) {
   const toScore = (value) => {
     if (value === 'BULLISH') return 1;
@@ -317,6 +469,13 @@ async function analyzeOneTicker(ticker, timeframe, strategyPreset) {
     analysis: technical,
     strategyPreset
   });
+  const decisionIntelligence = buildDecisionIntelligence({
+    technical,
+    latestPrice: displayPrice,
+    recommendation,
+    sentiment: ai.sentiment,
+    tradePlan
+  });
 
   return {
     ticker: displayTicker,
@@ -336,6 +495,7 @@ async function analyzeOneTicker(ticker, timeframe, strategyPreset) {
     },
     sentiment: ai.sentiment,
     recommendation,
+    decisionIntelligence,
     indicatorStatus,
     multiTimeframeTechnical,
     tradeConclusion,
@@ -356,7 +516,7 @@ router.post('/', async (req, res, next) => {
     }
 
     if (!isValidStrategyPreset(strategy)) {
-      return res.status(400).json({ error: 'strategy must be one of: scalp, balanced, swing' });
+      return res.status(400).json({ error: 'strategy must be one of: scalp, balanced, swing, breakout' });
     }
 
     const strategyPreset = normalizeStrategyPreset(strategy);

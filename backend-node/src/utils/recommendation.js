@@ -13,6 +13,25 @@ function scoreFromIndicators(analysis) {
   return score;
 }
 
+function getSupportResistance(candles = []) {
+  const recent = candles.slice(-20);
+  if (!recent.length) return { support: null, resistance: null };
+
+  const lows = recent.map((c) => Number(c?.low)).filter((v) => Number.isFinite(v));
+  const highs = recent.map((c) => Number(c?.high)).filter((v) => Number.isFinite(v));
+
+  return {
+    support: lows.length ? Math.min(...lows) : null,
+    resistance: highs.length ? Math.max(...highs) : null
+  };
+}
+
+function isNearLevel(price, level, thresholdPct = 1.5) {
+  if (!Number.isFinite(price) || !Number.isFinite(level) || level <= 0) return false;
+  const distancePct = Math.abs(((price - level) / level) * 100);
+  return distancePct <= thresholdPct;
+}
+
 function scoreFromSentiment(sentiment) {
   const normalized = (sentiment || 'neutral').toLowerCase();
   if (normalized === 'positive') return 1;
@@ -21,10 +40,30 @@ function scoreFromSentiment(sentiment) {
 }
 
 export function buildRecommendation({ analysis, sentiment }) {
+  const latest = analysis?.candles?.[analysis.candles.length - 1];
+  const latestClose = Number(latest?.close);
+  const rsi = Number(analysis?.indicators?.rsi);
+  const ma20 = Number(analysis?.indicators?.ma20);
+  const ma50 = Number(analysis?.indicators?.ma50);
+  const macdSignal = analysis?.signals?.macdSignal;
+  const trendSignal = analysis?.signals?.trendSignal;
+  const { support, resistance } = getSupportResistance(analysis?.candles || []);
+
+  if (rsi < 30 && isNearLevel(latestClose, support, 1.8)) return 'BUY';
+  if (rsi > 70 && isNearLevel(latestClose, resistance, 1.8)) return 'SELL';
+
+  if (Number.isFinite(ma20) && Number.isFinite(ma50) && ma20 > ma50 && macdSignal === 'bullish') return 'BUY';
+  if (Number.isFinite(ma20) && Number.isFinite(ma50) && ma20 < ma50 && macdSignal === 'bearish') return 'SELL';
+
   const totalScore = scoreFromIndicators(analysis) + scoreFromSentiment(sentiment);
 
-  if (totalScore >= 2) return 'BUY';
-  if (totalScore <= -2) return 'SELL';
+  if (totalScore >= 1) return 'BUY';
+  if (totalScore <= -1) return 'SELL';
+
+  // Keep HOLD only for truly mixed/neutral cases.
+  if (trendSignal === 'uptrend' && scoreFromSentiment(sentiment) >= 0) return 'BUY';
+  if (trendSignal === 'downtrend' && scoreFromSentiment(sentiment) <= 0) return 'SELL';
+
   return 'HOLD';
 }
 
@@ -66,6 +105,16 @@ const STRATEGY_PRESETS = {
     takeProfitMin: 2.8,
     takeProfitMax: 7.0,
     tp2AddonPct: 1.7
+  },
+  breakout: {
+    entryBandPct: 0.002,
+    stopLossMultiplier: 1.05,
+    takeProfitMultiplier: 2.0,
+    stopLossMin: 1.4,
+    stopLossMax: 3.8,
+    takeProfitMin: 3.0,
+    takeProfitMax: 8.5,
+    tp2AddonPct: 2.0
   }
 };
 

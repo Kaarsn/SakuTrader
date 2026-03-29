@@ -27,7 +27,7 @@ type PriceAlert = {
 type TradeJournalEntry = {
   id: number;
   ticker: string;
-  strategy: 'scalp' | 'balanced' | 'swing';
+  strategy: 'scalp' | 'balanced' | 'swing' | 'breakout';
   entryPrice: number;
   quantity: number;
   entryAt: string;
@@ -46,7 +46,7 @@ const APP_STATE_STORAGE_KEY = 'sakutrader-app-state-v1';
 type PersistedAppState = {
   tickerInput?: string;
   timeframe?: string;
-  strategyPreset?: 'scalp' | 'balanced' | 'swing';
+  strategyPreset?: 'scalp' | 'balanced' | 'swing' | 'breakout';
   dark?: boolean;
   compactView?: boolean;
   selected?: string;
@@ -81,6 +81,16 @@ function formatIdrInput(raw: unknown) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function limitSentences(text: string | undefined, maxSentences = 4) {
+  if (!text) return '-';
+  const parts = text
+    .split(/(?<=[.!?])\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (!parts.length) return text;
+  return parts.slice(0, maxSentences).join(' ');
 }
 
 function calculateTickerScore(item: StockResult) {
@@ -141,6 +151,13 @@ const MULTI_WINDOW_ORDER: Array<'6m' | '3m' | '1m' | '7d'> = ['6m', '3m', '1m', 
 const TRADINGVIEW_INTERVALS = ['1', '5', '15', '60', '240', 'D', 'W'] as const;
 const MAX_INTERVAL_CHANGES_PER_DAY = 20;
 
+function getQuickCallClass(value: string | undefined) {
+  if (!value) return 'quick-wait';
+  if (value === 'STRONG BUY' || value === 'BUY') return 'quick-buy';
+  if (value === 'SELL' || value === 'AVOID') return 'quick-sell';
+  return 'quick-wait';
+}
+
 function WindowTitle({ title }: { title: string }) {
   return (
     <div className="window-titlebar">
@@ -156,7 +173,7 @@ function WindowTitle({ title }: { title: string }) {
 export default function Dashboard() {
   const [tickerInput, setTickerInput] = useState('BBRI,TLKM,GOTO');
   const [timeframe, setTimeframe] = useState('3m');
-  const [strategyPreset, setStrategyPreset] = useState<'scalp' | 'balanced' | 'swing'>('balanced');
+  const [strategyPreset, setStrategyPreset] = useState<'scalp' | 'balanced' | 'swing' | 'breakout'>('balanced');
   const [dark, setDark] = useState(false);
   const [compactView, setCompactView] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -315,6 +332,43 @@ export default function Dashboard() {
 
     return 'Prospek 1-3 bulan belum memiliki sinyal dominan. Fokus pada manajemen risiko, level support-resistance, dan evaluasi berkala tiap update data.';
   }, [selectedStock]);
+
+  const decisionData = useMemo(() => {
+    if (!selectedStock || selectedStock.error) return null;
+    if (selectedStock.decisionIntelligence) return selectedStock.decisionIntelligence;
+
+    const recommendation = selectedStock.recommendation;
+    const quickCall = recommendation === 'BUY' ? 'BUY' : recommendation === 'SELL' ? 'SELL' : 'WAIT';
+    const bullishProbability = recommendation === 'BUY' ? 64 : recommendation === 'SELL' ? 34 : 50;
+    const bearishProbability = 100 - bullishProbability;
+
+    return {
+      quickCall,
+      quickReason: quickCall === 'BUY'
+        ? 'Momentum mendukung entry bertahap, tetap disiplin stop ketat.'
+        : quickCall === 'SELL'
+          ? 'Tekanan jual dominan, fokus lindungi modal dulu.'
+          : 'Sinyal campuran, tunggu konfirmasi level kunci.',
+      confidenceScore: selectedTickerScore ?? 55,
+      riskLevel: quickCall === 'WAIT' ? 'Medium' : quickCall === 'SELL' ? 'High' : 'Low',
+      bullishProbability,
+      bearishProbability,
+      scenarios: [
+        'Jika harga menembus resistance dengan volume naik, bias bullish menguat.',
+        'Jika support jebol, peluang bearish lanjutan meningkat.'
+      ],
+      oneLineInsight: quickCall === 'BUY'
+        ? 'Saham mengarah bullish, cocok untuk entry bertahap terukur.'
+        : quickCall === 'SELL'
+          ? 'Saham melemah, prioritaskan proteksi modal lebih dulu.'
+          : 'Saham netral, tunggu konfirmasi sebelum tambah posisi.',
+      edgeIndicators: {
+        smartMoneyFlowScore: selectedTickerScore ?? 55,
+        fakeBreakoutRisk: quickCall === 'WAIT' ? 58 : quickCall === 'SELL' ? 72 : 42,
+        volumeSpikeAlert: selectedStock.technical.signals.volumeStrong === 'yes'
+      }
+    };
+  }, [selectedStock, selectedTickerScore]);
 
   const longTermCandidates = useMemo(() => {
     return safeResults
@@ -501,7 +555,7 @@ export default function Dashboard() {
         if (parsedAppState.timeframe && ['7d', '1m', '3m', '6m'].includes(parsedAppState.timeframe)) {
           setTimeframe(parsedAppState.timeframe);
         }
-        if (parsedAppState.strategyPreset && ['scalp', 'balanced', 'swing'].includes(parsedAppState.strategyPreset)) {
+        if (parsedAppState.strategyPreset && ['scalp', 'balanced', 'swing', 'breakout'].includes(parsedAppState.strategyPreset)) {
           setStrategyPreset(parsedAppState.strategyPreset);
         }
         if (typeof parsedAppState.dark === 'boolean') {
@@ -846,14 +900,15 @@ export default function Dashboard() {
           </label>
 
           <label>
-            Strategy
+            Trading Mode
             <select
               value={strategyPreset}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) => setStrategyPreset(e.target.value as 'scalp' | 'balanced' | 'swing')}
+              onChange={(e: ChangeEvent<HTMLSelectElement>) => setStrategyPreset(e.target.value as 'scalp' | 'balanced' | 'swing' | 'breakout')}
             >
               <option value="scalp">Scalp (tight SL/TP)</option>
               <option value="balanced">Balanced</option>
               <option value="swing">Swing (wider target)</option>
+              <option value="breakout">Breakout (follow momentum)</option>
             </select>
           </label>
 
@@ -977,6 +1032,53 @@ export default function Dashboard() {
 
         {data ? (
           <>
+            {selectedStock && !selectedStock.error && decisionData ? (
+              <section className="panel retro-window quick-call-panel">
+                <WindowTitle title="Quick Call" />
+                <div className="quick-call-head">
+                  <p className="quick-one-line">{decisionData.oneLineInsight}</p>
+                  <span className={`quick-call-badge ${getQuickCallClass(decisionData.quickCall)}`}>{decisionData.quickCall}</span>
+                </div>
+                <p className="quick-call-reason">{decisionData.quickReason}</p>
+
+                <div className="quick-metrics-grid">
+                  <article className="quick-metric-card">
+                    <p>Confidence Score</p>
+                    <strong>{decisionData.confidenceScore}%</strong>
+                  </article>
+                  <article className="quick-metric-card">
+                    <p>Risk Level</p>
+                    <strong>{decisionData.riskLevel}</strong>
+                  </article>
+                  <article className="quick-metric-card">
+                    <p>Bullish Probability</p>
+                    <strong className="good">{decisionData.bullishProbability}%</strong>
+                  </article>
+                  <article className="quick-metric-card">
+                    <p>Bearish Probability</p>
+                    <strong className="bad">{decisionData.bearishProbability}%</strong>
+                  </article>
+                </div>
+
+                <div className="quick-next-grid">
+                  <article className="quick-next-card">
+                    <h3>What Happens Next</h3>
+                    <ul>
+                      {decisionData.scenarios.slice(0, 3).map((scenario, idx) => (
+                        <li key={`scenario-${idx}`}>{scenario}</li>
+                      ))}
+                    </ul>
+                  </article>
+                  <article className="quick-next-card">
+                    <h3>Edge Indicator</h3>
+                    <p>Smart Money Flow Score: <strong>{decisionData.edgeIndicators.smartMoneyFlowScore}/100</strong></p>
+                    <p>Fake Breakout Detector: <strong>{decisionData.edgeIndicators.fakeBreakoutRisk}/100 risk</strong></p>
+                    <p>Volume Spike Alert: <strong>{decisionData.edgeIndicators.volumeSpikeAlert ? 'ON' : 'OFF'}</strong></p>
+                  </article>
+                </div>
+              </section>
+            ) : null}
+
             <section className="panel stock-grid retro-window">
               <WindowTitle title="Ticker Snapshot" />
               {safeResults.map((item) => (
@@ -1049,6 +1151,16 @@ export default function Dashboard() {
                 <div className="status-item">
                   <span>Conclusion</span>
                   <strong className={selectedStock.tradeConclusion === 'GOOD' ? 'good' : 'bad'}>{selectedStock.tradeConclusion}</strong>
+                </div>
+                <div className="status-item">
+                  <span>Confidence</span>
+                  <strong>{decisionData?.confidenceScore ?? '-'}%</strong>
+                </div>
+                <div className="status-item">
+                  <span>Risk</span>
+                  <strong className={decisionData?.riskLevel === 'High' ? 'bad' : decisionData?.riskLevel === 'Low' ? 'good' : 'warn'}>
+                    {decisionData?.riskLevel ?? '-'}
+                  </strong>
                 </div>
                 <div className="status-item">
                   <span>Entry</span>
@@ -1245,16 +1357,28 @@ export default function Dashboard() {
                     <>
                       <p>Strategy: {selectedStock.tradePlan.strategy}</p>
                       <p>Preset: {selectedStock.tradePlan.profile || strategyPreset}</p>
-                      {selectedStock.tradePlan.entryZone ? (
-                        <p>
-                          Entry Zone: {formatNumber(selectedStock.tradePlan.entryZone.low, 0)} - {formatNumber(selectedStock.tradePlan.entryZone.high, 0)} IDR
-                        </p>
-                      ) : (
-                        <p>Entry Zone: -</p>
-                      )}
-                      <p>Cut Loss: {formatNumber(selectedStock.tradePlan.cutLoss || undefined, 0)} IDR</p>
-                      <p>Take Profit 1: {formatNumber(selectedStock.tradePlan.takeProfit1 || undefined, 0)} IDR</p>
-                      <p>Take Profit 2: {formatNumber(selectedStock.tradePlan.takeProfit2 || undefined, 0)} IDR</p>
+                      <div className="trade-plan-key-grid">
+                        <article className="trade-plan-key-card">
+                          <p>Recommended Entry</p>
+                          <strong>
+                            {selectedStock.tradePlan.entryZone
+                              ? `${formatNumber(selectedStock.tradePlan.entryZone.low, 0)} - ${formatNumber(selectedStock.tradePlan.entryZone.high, 0)} IDR`
+                              : '-'}
+                          </strong>
+                        </article>
+                        <article className="trade-plan-key-card invalidation">
+                          <p>Invalidation Level</p>
+                          <strong>{formatNumber(selectedStock.tradePlan.cutLoss || undefined, 0)} IDR</strong>
+                        </article>
+                        <article className="trade-plan-key-card tp-card">
+                          <p>Take Profit 1</p>
+                          <strong>{formatNumber(selectedStock.tradePlan.takeProfit1 || undefined, 0)} IDR</strong>
+                        </article>
+                        <article className="trade-plan-key-card tp-card">
+                          <p>Take Profit 2</p>
+                          <strong>{formatNumber(selectedStock.tradePlan.takeProfit2 || undefined, 0)} IDR</strong>
+                        </article>
+                      </div>
                       <p>Risk/Reward: {selectedStock.tradePlan.riskReward ? selectedStock.tradePlan.riskReward : '-'}</p>
                       <p>{selectedStock.tradePlan.note}</p>
                     </>
@@ -1268,10 +1392,10 @@ export default function Dashboard() {
                     {typeof selectedStock.aiInsight === 'object' ? (
                       <>
                         <p><strong>Penyebab Pergerakan:</strong> {selectedStock.aiInsight?.causes || 'N/A'}</p>
-                        <p><strong>Main Insight:</strong> {selectedStock.aiInsight?.insight || '-'}</p>
+                        <p><strong>Main Insight:</strong> {limitSentences(selectedStock.aiInsight?.insight, 4)}</p>
                       </>
                     ) : (
-                      <p><strong>Main Insight:</strong> {selectedStock.aiInsight || '-'}</p>
+                      <p><strong>Main Insight:</strong> {limitSentences(String(selectedStock.aiInsight || '-'), 4)}</p>
                     )}
                   </div>
                   

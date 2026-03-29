@@ -123,6 +123,21 @@ export type StockResult = {
   };
   sentiment: string;
   recommendation: 'BUY' | 'HOLD' | 'SELL';
+  decisionIntelligence?: {
+    quickCall: 'STRONG BUY' | 'BUY' | 'WAIT' | 'SELL' | 'AVOID';
+    quickReason: string;
+    confidenceScore: number;
+    riskLevel: 'Low' | 'Medium' | 'High';
+    bullishProbability: number;
+    bearishProbability: number;
+    scenarios: string[];
+    oneLineInsight: string;
+    edgeIndicators: {
+      smartMoneyFlowScore: number;
+      fakeBreakoutRisk: number;
+      volumeSpikeAlert: boolean;
+    };
+  };
   indicatorStatus: {
     rsi: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
     macd: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
@@ -139,7 +154,7 @@ export type StockResult = {
   tradeConclusion: 'GOOD' | 'BAD';
   tradePlan: {
     strategy: string;
-    profile?: 'scalp' | 'balanced' | 'swing';
+    profile?: 'scalp' | 'balanced' | 'swing' | 'breakout';
     entryZone: {
       low: number;
       high: number;
@@ -158,7 +173,7 @@ export type StockResult = {
 export type AnalysisResponse = {
   generatedAt: string;
   timeframe: string;
-  strategy?: 'scalp' | 'balanced' | 'swing';
+  strategy?: 'scalp' | 'balanced' | 'swing' | 'breakout';
   results: StockResult[];
   cached: boolean;
 };
@@ -202,7 +217,7 @@ export function getApiBase(): string {
 export async function requestAnalysis(
   tickers: string[],
   timeframe: string,
-  strategy: 'scalp' | 'balanced' | 'swing' = 'balanced'
+  strategy: 'scalp' | 'balanced' | 'swing' | 'breakout' = 'balanced'
 ): Promise<AnalysisResponse> {
   const API_BASE = getApiBase();
   const response = await fetch(`${API_BASE}/api/analysis`, {
