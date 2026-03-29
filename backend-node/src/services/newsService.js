@@ -178,13 +178,3 @@ function getFallbackNews(ticker) {
 
   return news;
 }
-  });
-
-  return relevant.slice(0, 5).map((article) => ({
-    title: article.title,
-    source: article.source?.name || 'Unknown',
-    summary: article.description || 'No summary available.',
-    url: article.url,
-    publishedAt: article.publishedAt
-  }));
-}
