@@ -500,6 +500,38 @@ button {
   overflow: auto;
 }
 
+.footer-section {
+  margin-top: 16px;
+  padding: 12px;
+  background: linear-gradient(135deg, var(--paper) 0%, var(--paper-deep) 100%);
+  border: 2px solid var(--line);
+}
+
+.footer-content {
+  text-align: center;
+  padding: 8px 0;
+}
+
+.copyright {
+  margin: 6px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.powered-by {
+  margin: 4px 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.roadmap {
+  margin: 4px 0;
+  font-size: 12px;
+  color: var(--accent);
+  font-style: italic;
+}
+
 .insight-wrap h2 {
   margin-top: 8px;
   margin-bottom: 4px;

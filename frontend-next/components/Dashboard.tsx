@@ -886,6 +886,15 @@ export default function Dashboard() {
             ) : null}
           </>
         ) : null}
+
+        <footer className="panel retro-window footer-section">
+          <WindowTitle title="SakuTrader Footer" />
+          <div className="footer-content">
+            <p className="copyright">© 2026 Muhammad Kaab Aryadilla. All rights reserved.</p>
+            <p className="powered-by">Powered by AI-driven technical analysis, Golden/Death Cross detection, and multi-timeframe insights.</p>
+            <p className="roadmap">🚀 Upcoming: LLM-powered financial report analysis, earnings insights, and fundamental analysis.</p>
+          </div>
+        </footer>
       </main>
     </div>
   );
