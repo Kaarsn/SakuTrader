@@ -16,20 +16,29 @@ const COMPANY_ALIASES = {
 // Free fallback news sources (when NEWS_API_KEY not available)
 const MOCK_NEWS_SOURCES = [
   {
-    id: 'bloomberg',
-    name: 'Bloomberg'
+    id: 'kontan',
+    name: 'Kontan.co.id',
+    baseUrl: 'https://kontan.co.id'
   },
   {
-    id: 'reuters',
-    name: 'Reuters'
+    id: 'bisnis',
+    name: 'Bisnis.com',
+    baseUrl: 'https://bisnis.com'
   },
   {
-    id: 'cnbc',
-    name: 'CNBC'
+    id: 'investor',
+    name: 'Investor.id',
+    baseUrl: 'https://investor.id'
   },
   {
-    id: 'financial-times',
-    name: 'Financial Times'
+    id: 'cnbc-indo',
+    name: 'CNBC Indonesia',
+    baseUrl: 'https://www.cnbcindonesia.com'
+  },
+  {
+    id: 'market-bisnis',
+    name: 'Market.Bisnis.com',
+    baseUrl: 'https://market.bisnis.com'
   }
 ];
 
@@ -137,40 +146,61 @@ function getFallbackNews(ticker) {
     {
       title: `${companyName} Lapor Kenaikan Pendapatan Q1 2026`,
       summary: `${companyName} mencatat pertumbuhan kuat dengan peningkatan pendapatan sebesar 15% year-over-year. Peningkatan ini didorong oleh permintaan pasar yang solid dan efisiensi operasional.`,
-      sentiment: 'positif'
+      sentiment: 'positif',
+      slug: 'kenaikan-pendapatan-q1-2026'
     },
     {
       title: `Analisa: ${companyName} Masih Attractive untuk Investor Jangka Panjang`,
       summary: `Para analis merekomendasikan ${companyName} sebagai pilihan investasi dengan valuasi yang menguntungkan. Prospek bisnis masih menjanjikan dengan pertumbuhan ekspansi di berbagai segmen.`,
-      sentiment: 'positif'
+      sentiment: 'positif',
+      slug: 'attractive-investor-jangka-panjang'
     },
     {
       title: `${companyName} Menargetkan Pertumbuhan 12% di 2026`,
       summary: `Manajemen ${companyName} menetapkan target pertumbuhan 12% untuk tahun fiskal 2026. Strategi ekspansi difokuskan pada pasar domestik dengan inovasi produk yang relevan.`,
-      sentiment: 'optimis'
+      sentiment: 'optimis',
+      slug: 'target-pertumbuhan-12-persen-2026'
     },
     {
       title: `Update Saham: ${companyName} Naik di Bursa Efek Indonesia`,
       summary: `Saham ${companyName} mengalami penguatan di trading session hari ini dengan volume transaksi di atas rata-rata. Investor mulai menunjukkan minat yang positif terhadap fundamental perusahaan.`,
-      sentiment: 'positif'
+      sentiment: 'positif',
+      slug: 'saham-naik-bursa-efek-indonesia'
     },
     {
       title: `Dividen ${companyName} Diharapkan Naik Tahun Ini`,
       summary: `Berdasarkan proyeksi kinerja kuartalan, ${companyName} diperkirakan akan menaikkan pembayaran dividen. Hal ini mencerminkan kesehatan keuangan perusahaan yang terus membaik.`,
-      sentiment: 'positif'
+      sentiment: 'positif',
+      slug: 'dividen-diharapkan-naik-tahun-ini'
     }
   ];
 
-  // Return 3-5 random news items with proper structure
+  // Return 3-5 random news items with proper structure and real URLs
   const newsCount = Math.floor(Math.random() * 3) + 3; // 3-5 news
   const news = [];
   for (let i = 0; i < newsCount; i++) {
     const template = newsTemplates[i % newsTemplates.length];
+    const source = MOCK_NEWS_SOURCES[i % MOCK_NEWS_SOURCES.length];
+    
+    // Generate realistic URLs based on source
+    let articleUrl;
+    if (source.id === 'kontan') {
+      articleUrl = `${source.baseUrl}/berita/${template.slug}`;
+    } else if (source.id === 'bisnis') {
+      articleUrl = `${source.baseUrl}/read/${Date.now()}-${template.slug}`;
+    } else if (source.id === 'investor') {
+      articleUrl = `${source.baseUrl}/read/${template.slug}`;
+    } else if (source.id === 'cnbc-indo') {
+      articleUrl = `${source.baseUrl}/market/article/${Date.now()}-${template.slug}`;
+    } else {
+      articleUrl = `${source.baseUrl}/${template.slug}`;
+    }
+    
     news.push({
       title: template.title,
-      source: MOCK_NEWS_SOURCES[i % MOCK_NEWS_SOURCES.length].name,
+      source: source.name,
       summary: template.summary,
-      url: `https://example.com/news/${symbol}-${i}`,
+      url: articleUrl,
       sentiment: template.sentiment,
       isFallback: true
     });
