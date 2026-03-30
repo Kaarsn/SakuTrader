@@ -1,4 +1,4 @@
-# SAKUTRADER
+<img width="256" height="256" alt="idx-logo" src="https://github.com/user-attachments/assets/07097945-e242-441c-8484-58d6c35b02be" />
 
 Platform analisis saham BEI/IDX berbasis web + desktop untuk screening multi-ticker, analisis teknikal, rekomendasi aksi, dan trade plan otomatis.
 
