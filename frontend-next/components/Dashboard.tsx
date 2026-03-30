@@ -366,6 +366,35 @@ export default function Dashboard() {
     return 'Prospek 1-3 bulan belum memiliki sinyal dominan. Fokus pada manajemen risiko, level support-resistance, dan evaluasi berkala tiap update data.';
   }, [selectedStock]);
 
+  const entryDisplayText = useMemo(() => {
+    if (!selectedStock || selectedStock.error) return 'N/A';
+    const plan = selectedStock.tradePlan;
+    if (plan?.entryZone) {
+      return `${formatNumber(plan.entryZone.low, 0)} - ${formatNumber(plan.entryZone.high, 0)}`;
+    }
+    if (selectedStock.recommendation === 'SELL') return 'No new entry (SELL signal)';
+    if (selectedStock.recommendation === 'HOLD') return 'Wait confirmation';
+    return 'N/A';
+  }, [selectedStock]);
+
+  const tp1DisplayText = useMemo(() => {
+    if (!selectedStock || selectedStock.error) return 'N/A';
+    const tp1 = selectedStock.tradePlan?.takeProfit1;
+    if (typeof tp1 === 'number' && Number.isFinite(tp1)) return formatNumber(tp1, 0);
+    if (selectedStock.recommendation === 'SELL') return 'Prioritize reduce position';
+    if (selectedStock.recommendation === 'HOLD') return 'Monitor resistance';
+    return 'N/A';
+  }, [selectedStock]);
+
+  const tp2DisplayText = useMemo(() => {
+    if (!selectedStock || selectedStock.error) return 'N/A';
+    const tp2 = selectedStock.tradePlan?.takeProfit2;
+    if (typeof tp2 === 'number' && Number.isFinite(tp2)) return formatNumber(tp2, 0);
+    if (selectedStock.recommendation === 'SELL') return 'Avoid adding position';
+    if (selectedStock.recommendation === 'HOLD') return 'Wait stronger trend';
+    return 'N/A';
+  }, [selectedStock]);
+
   const decisionData = useMemo(() => {
     if (!selectedStock || selectedStock.error) return null;
     if (selectedStock.decisionIntelligence) return selectedStock.decisionIntelligence;
@@ -402,6 +431,61 @@ export default function Dashboard() {
       }
     };
   }, [selectedStock, selectedTickerScore]);
+
+  const edgeIndicatorNotes = useMemo(() => {
+    if (!decisionData) return null;
+
+    const smartMoneyScore = Number(decisionData.edgeIndicators?.smartMoneyFlowScore ?? 0);
+    const fakeBreakoutRisk = Number(decisionData.edgeIndicators?.fakeBreakoutRisk ?? 0);
+    const volumeSpike = Boolean(decisionData.edgeIndicators?.volumeSpikeAlert);
+
+    const smartMoneyStatus = smartMoneyScore >= 65 ? 'good' : smartMoneyScore < 50 ? 'bad' : 'warn';
+    const smartMoneyNote = smartMoneyScore >= 65
+      ? 'BAIK: aliran dana mendukung potensi entry.'
+      : smartMoneyScore < 50
+        ? 'BURUK: aliran dana lemah, hindari entry agresif.'
+        : 'WASPADA: aliran dana belum kuat, tunggu konfirmasi.';
+
+    const fakeBreakoutStatus = fakeBreakoutRisk <= 40 ? 'good' : fakeBreakoutRisk > 65 ? 'bad' : 'warn';
+    const fakeBreakoutNote = fakeBreakoutRisk <= 40
+      ? 'BAIK: risiko fake breakout rendah.'
+      : fakeBreakoutRisk > 65
+        ? 'BURUK: risiko fake breakout tinggi.'
+        : 'WASPADA: risiko fake breakout menengah.';
+
+    const volumeStatus = volumeSpike ? 'good' : 'warn';
+    const volumeNote = volumeSpike
+      ? 'BAIK: volume spike mendukung validasi pergerakan.'
+      : 'WASPADA: tidak ada volume spike, konfirmasi entry belum optimal.';
+
+    let entryConclusion = 'Sinyal campuran, entry bertahap boleh dengan risiko ketat.';
+    if (smartMoneyStatus === 'good' && fakeBreakoutStatus === 'good' && volumeSpike) {
+      entryConclusion = 'Kondisi indikator cenderung baik untuk entry bertahap.';
+    } else if (fakeBreakoutStatus === 'bad') {
+      entryConclusion = 'Risiko fake breakout tinggi, sebaiknya tunggu konfirmasi tambahan.';
+    } else if (smartMoneyStatus === 'bad') {
+      entryConclusion = 'Aliran smart money lemah, entry agresif belum disarankan.';
+    }
+
+    return {
+      smartMoneyScore,
+      smartMoneyStatus,
+      smartMoneyNote,
+      fakeBreakoutRisk,
+      fakeBreakoutStatus,
+      fakeBreakoutNote,
+      volumeSpike,
+      volumeStatus,
+      volumeNote,
+      entryConclusion
+    };
+  }, [decisionData]);
+
+  const composeMainInsight = (baseInsight: string | undefined) => {
+    const safeBase = limitSentences(baseInsight, 4);
+    if (!edgeIndicatorNotes) return safeBase;
+    return `${safeBase} Kesimpulan indikator: ${edgeIndicatorNotes.entryConclusion}`;
+  };
 
   const longTermCandidates = useMemo(() => {
     return safeResults
@@ -1216,11 +1300,7 @@ export default function Dashboard() {
                 </div>
                 <div className="status-item">
                   <span>Entry</span>
-                  <strong>
-                    {selectedStock.tradePlan?.entryZone
-                      ? `${formatNumber(selectedStock.tradePlan.entryZone.low, 0)} - ${formatNumber(selectedStock.tradePlan.entryZone.high, 0)}`
-                      : '-'}
-                  </strong>
+                  <strong>{entryDisplayText}</strong>
                 </div>
                 <div className="status-item">
                   <span>Cut Loss</span>
@@ -1228,11 +1308,11 @@ export default function Dashboard() {
                 </div>
                 <div className="status-item">
                   <span>TP1</span>
-                  <strong>{formatNumber(selectedStock.tradePlan?.takeProfit1 || undefined, 0)}</strong>
+                  <strong>{tp1DisplayText}</strong>
                 </div>
                 <div className="status-item">
                   <span>TP2</span>
-                  <strong>{formatNumber(selectedStock.tradePlan?.takeProfit2 || undefined, 0)}</strong>
+                  <strong>{tp2DisplayText}</strong>
                 </div>
               </section>
             ) : null}
@@ -1324,6 +1404,24 @@ export default function Dashboard() {
                   </p>
                   <p>Trend: {selectedStock.technical.signals.trendSignal}</p>
                   <p>Trade Conclusion: <strong className={selectedStock.tradeConclusion === 'GOOD' ? 'good' : 'bad'}>{selectedStock.tradeConclusion}</strong></p>
+
+                  {edgeIndicatorNotes ? (
+                    <>
+                      <h2>Edge Indicator (Entry Quality)</h2>
+                      <p>
+                        Smart Money Flow Score: <strong className={edgeIndicatorNotes.smartMoneyStatus}>{edgeIndicatorNotes.smartMoneyScore}/100</strong>
+                        {' • '}{edgeIndicatorNotes.smartMoneyNote}
+                      </p>
+                      <p>
+                        Fake Breakout Detector: <strong className={edgeIndicatorNotes.fakeBreakoutStatus}>{edgeIndicatorNotes.fakeBreakoutRisk}/100</strong>
+                        {' • '}{edgeIndicatorNotes.fakeBreakoutNote}
+                      </p>
+                      <p>
+                        Volume Spike Alert: <strong className={edgeIndicatorNotes.volumeStatus}>{edgeIndicatorNotes.volumeSpike ? 'ON' : 'OFF'}</strong>
+                        {' • '}{edgeIndicatorNotes.volumeNote}
+                      </p>
+                    </>
+                  ) : null}
 
                   <h2>Volume & Bollinger Bands</h2>
                   <p>Volume Ratio: <strong>{selectedStock.technical.signals.volumeRatio ?? '-'}</strong> {selectedStock.technical.signals.volumeStrong === 'yes' ? '🔥 Strong' : '📊 Normal'}</p>
@@ -1444,34 +1542,29 @@ export default function Dashboard() {
                     {typeof selectedStock.aiInsight === 'object' ? (
                       <>
                         <p><strong>Penyebab Pergerakan:</strong> {selectedStock.aiInsight?.causes || 'N/A'}</p>
-                        <p><strong>Main Insight:</strong> {limitSentences(selectedStock.aiInsight?.insight, 4)}</p>
+                        <p><strong>Main Insight:</strong> {composeMainInsight(selectedStock.aiInsight?.insight)}</p>
+                        {Array.isArray(selectedStock.aiInsight?.topNews) && selectedStock.aiInsight.topNews.length > 0 && (
+                          <div style={{ marginTop: '0.6rem' }}>
+                            <p><strong>Berita Terkait:</strong></p>
+                            {selectedStock.aiInsight.topNews.slice(0, 5).map((item, idx) => (
+                              <p key={`${item.url || item.title}-${idx}`} style={{ margin: '0.2rem 0' }}>
+                                <a
+                                  href={item.url || '#'}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{ color: dark ? '#9fd3ff' : '#1f4d8f', textDecoration: 'underline' }}
+                                >
+                                  {item.source || 'Sumber'} - {item.title || 'Lihat berita'}
+                                </a>
+                              </p>
+                            ))}
+                          </div>
+                        )}
                       </>
                     ) : (
-                      <p><strong>Main Insight:</strong> {limitSentences(String(selectedStock.aiInsight || '-'), 4)}</p>
+                      <p><strong>Main Insight:</strong> {composeMainInsight(String(selectedStock.aiInsight || '-'))}</p>
                     )}
                   </div>
-                  
-                  {typeof selectedStock.aiInsight === 'object' && selectedStock.aiInsight?.topNews && selectedStock.aiInsight.topNews.length > 0 && (
-                    <div
-                      style={{
-                        marginBottom: '1rem',
-                        padding: '0.5rem',
-                        backgroundColor: dark ? '#2a323f' : '#f0f0f0',
-                        color: dark ? '#fff6b8' : '#1d232d',
-                        border: dark ? '1px solid #58647a' : '1px solid #d9d9d9',
-                        borderRadius: '4px'
-                      }}
-                    >
-                      <p><strong>Berita Terkait:</strong></p>
-                      <ul style={{ margin: '0.5rem 0', paddingLeft: '1.5rem' }}>
-                        {selectedStock.aiInsight.topNews.map((news, idx) => (
-                          <li key={idx} style={{ fontSize: '0.85rem', marginBottom: '0.3rem', color: dark ? '#fff6b8' : '#1d232d' }}>
-                            {news.title} <em>({news.date || 'N/A'})</em>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
                   
                   {typeof selectedStock.aiInsight === 'object' && selectedStock.aiInsight?.outlook && (
                     <div

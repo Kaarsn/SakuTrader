@@ -4,8 +4,7 @@ import axios from 'axios';
 const articleStorage = new Map();
 
 // Real news API keys (set in .env)
-const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || 'c7pb0aqad3icao3ufq70'; // Free tier key
-const NEWS_API_KEY = process.env.NEWS_API_KEY || '3e58215697154bb986091ee64391c4a6';
+const BERITA_INDO_BASE_URL = process.env.BERITA_INDO_BASE_URL || 'https://berita-indo-api-next.vercel.app/api';
 
 const COMPANY_ALIASES = {
   BBRI: ['Bank Rakyat Indonesia', 'BRI', 'BBRI.JK'],
@@ -20,261 +19,257 @@ const COMPANY_ALIASES = {
   ADRO: ['Adaro Energy', 'Adaro', 'ADRO.JK']
 };
 
+const BERITA_INDO_ENDPOINTS = [
+  { source: 'Antara', path: '/antara-news/ekonomi' },
+  { source: 'CNN Indonesia', path: '/cnn-news/ekonomi' },
+  { source: 'CNBC Indonesia', path: '/cnbc-news/market' },
+  { source: 'Republika', path: '/republika-news/ekonomi' },
+  { source: 'Tempo Bisnis', path: '/tempo-news/bisnis' },
+  { source: 'Okezone Economy', path: '/okezone-news/economy' },
+  { source: 'Kumparan', path: '/kumparan-news' },
+  { source: 'Tribun Bisnis', path: '/tribun-news/jakarta/bisnis' },
+  { source: 'Zetizen Jawapos', path: '/zetizen-jawapos-news/techno' },
+  { source: 'Vice', path: '/vice-news' },
+  { source: 'Suara Bisnis', path: '/suara-news/bisnis' },
+  { source: 'VOA', path: '/voa-news' }
+];
+
+const BERITA_INDO_MAX_REQUESTS = 36;
+const BERITA_INDO_TIMEOUT_MS = 2200;
+
+function hasWholeWord(text, token) {
+  if (!text || !token) return false;
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\b${escaped}\\b`, 'i').test(text);
+}
+
+function buildCompanySearchText(article) {
+  return [
+    article?.headline,
+    article?.title,
+    article?.summary,
+    article?.description,
+    article?.content,
+    article?.source,
+    article?.source?.name,
+    article?.url
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function uniq(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function extractBeritaIndoRows(payload) {
+  const candidates = [
+    payload?.data,
+    payload?.results,
+    payload?.posts,
+    payload?.messages,
+    payload?.data?.posts,
+    payload?.data?.results,
+    payload?.data?.data
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+
+  return [];
+}
+
+function normalizeBeritaIndoArticle(item, source) {
+  return {
+    title: item?.title || item?.headline || '',
+    summary: item?.description || item?.contentSnippet || item?.title || '',
+    url: item?.link || item?.url,
+    source,
+    publishedAt: item?.isoDate || item?.pubDate || item?.publishedAt || new Date().toISOString()
+  };
+}
+
+function getStrictAliases(symbol) {
+  const symbolUpper = (symbol || '').toUpperCase();
+  const aliases = COMPANY_ALIASES[symbolUpper] || [];
+  return aliases.filter((alias) => {
+    if (!alias) return false;
+    if (alias.toUpperCase().includes('.JK')) return true;
+    // Prioritize explicit company names, not generic one-word aliases.
+    return alias.trim().includes(' ');
+  });
+}
+
+function isArticleRelevantToSymbol(article, symbol) {
+  const text = buildCompanySearchText(article);
+  if (!text) return false;
+
+  const symbolUpper = (symbol || '').toUpperCase();
+  const symbolLower = symbolUpper.toLowerCase();
+  const aliases = getStrictAliases(symbolUpper);
+  const financeContextKeywords = [
+    'stock',
+    'shares',
+    'equity',
+    'market',
+    'saham',
+    'emiten',
+    'idx',
+    'jakarta',
+    'indonesia',
+    'tbk',
+    'bursa'
+  ];
+
+  const hasFinanceContext = financeContextKeywords.some((keyword) => text.includes(keyword));
+
+  let phraseHit = false;
+  const tokenHits = new Set();
+
+  for (const alias of aliases) {
+    const aliasLower = alias.toLowerCase();
+    if (!aliasLower) continue;
+
+    if (aliasLower.includes('.jk') && text.includes(aliasLower)) {
+      return true;
+    }
+
+    if (aliasLower.length >= 5 && text.includes(aliasLower)) {
+      phraseHit = true;
+    }
+
+    const tokens = aliasLower
+      .split(/[^a-z0-9]+/)
+      .filter((token) => token.length >= 5 && !['bank', 'pt', 'tbk', 'persero'].includes(token));
+
+    for (const token of tokens) {
+      if (hasWholeWord(text, token)) {
+        tokenHits.add(token);
+      }
+    }
+  }
+
+  if (phraseHit) return true;
+
+  // Symbol-only hits can be noisy, require financial context or additional company tokens.
+  if (hasWholeWord(text, symbolLower) || text.includes(`${symbolLower}.jk`)) {
+    return hasFinanceContext || tokenHits.size >= 1;
+  }
+
+  return tokenHits.size >= 2;
+}
+
 /**
  * Main function - fetch news for a ticker
- * Priority: Finnhub -> NewsAPI -> Empty (no fake generic news)
- * Only return REAL news from actual APIs, don't use generic fallback
+ * Only use Berita Indo and only return ticker-relevant items.
  */
 export async function fetchNewsForTicker(ticker) {
   const symbol = ticker.replace('.JK', '');
 
   try {
-    // Priority 1: Finnhub (free, reliable global stocks)
-    console.log(`[NEWS] Fetching from Finnhub for ${symbol}...`);
-    const finnhubNews = await fetchFromFinnhub(symbol);
-    if (finnhubNews.length > 0) {
-      console.log(`[NEWS] ✓ Found ${finnhubNews.length} real articles from Finnhub for ${symbol}`);
-      return finnhubNews;
+    console.log(`[NEWS] Trying Berita Indo API for ${symbol}...`);
+    const beritaIndoNews = await fetchFromBeritaIndo(symbol);
+    if (beritaIndoNews.length > 0) {
+      console.log(`[NEWS] ✓ Found ${beritaIndoNews.length} relevant articles from Berita Indo for ${symbol}`);
+      return beritaIndoNews;
     }
-
-    // Priority 2: NewsAPI
-    console.log(`[NEWS] Trying NewsAPI for ${symbol}...`);
-    const newsApiNews = await fetchFromNewsAPI(symbol);
-    if (newsApiNews.length > 0) {
-      console.log(`[NEWS] ✓ Found ${newsApiNews.length} real articles from NewsAPI for ${symbol}`);
-      return newsApiNews;
-    }
-
-    // No real news found - return empty array instead of generic fallback
-    console.log(`[NEWS] ✗ No real news found for ${symbol} from any source`);
     return [];
 
   } catch (error) {
     console.log(`[NEWS] Error fetching news for ${ticker}: ${error.message}`);
-    // Return empty array instead of generic fallback
     return [];
   }
 }
 
 /**
- * Fetch from Finnhub API - free tier, reliable, global stocks
- * https://finnhub.io
+ * Fetch from Berita Indo API (multi-source) and keep only ticker-relevant items.
  */
-async function fetchFromFinnhub(symbol) {
+async function fetchFromBeritaIndo(symbol) {
   try {
-    const response = await axios.get('https://finnhub.io/api/v1/company/news', {
-      params: {
-        symbol: symbol.toUpperCase(),
-        limit: 10,
-        token: FINNHUB_API_KEY
-      },
-      timeout: 8000
-    });
+    const strictAliases = getStrictAliases(symbol);
+    const queries = uniq([strictAliases[0], `${symbol}.JK`, symbol]);
+    const picked = [];
+    const seen = new Set();
+    let requestsMade = 0;
 
-    if (!response.data || response.data.length === 0) return [];
+    // Execute each query in parallel across endpoints to avoid slow sequential waits.
+    for (const query of queries) {
+      if (picked.length >= 8 || requestsMade >= BERITA_INDO_MAX_REQUESTS) break;
 
-    return response.data.slice(0, 8).map((article, idx) => {
-      const articleId = `article_fe_${Date.now()}_${idx}`;
+      const endpointsForRound = BERITA_INDO_ENDPOINTS.slice(0, Math.max(BERITA_INDO_MAX_REQUESTS - requestsMade, 0));
+      requestsMade += endpointsForRound.length;
 
-      // Store full article with original URL
+      const settled = await Promise.allSettled(
+        endpointsForRound.map(async (endpoint) => {
+          const response = await axios.get(`${BERITA_INDO_BASE_URL}${endpoint.path}`, {
+            params: { search: query },
+            timeout: BERITA_INDO_TIMEOUT_MS
+          });
+
+          const rows = extractBeritaIndoRows(response?.data);
+          return rows
+            .map((item) => normalizeBeritaIndoArticle(item, endpoint.source))
+            .filter((article) => article.title && article.url)
+            .filter((article) => isArticleRelevantToSymbol(article, symbol));
+        })
+      );
+
+      for (const row of settled) {
+        if (row.status !== 'fulfilled') continue;
+        for (const article of row.value) {
+          const dedupeKey = `${article.url}::${article.title}`;
+          if (seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
+          picked.push(article);
+          if (picked.length >= 8) break;
+        }
+        if (picked.length >= 8) break;
+      }
+
+      // Keep iterating other queries as long as we still have request budget,
+      // so results can be mixed across more sources.
+      if (picked.length >= 8) break;
+    }
+
+    if (picked.length === 0) {
+      console.log(`[NEWS] Berita Indo returned items, but none were relevant to ${symbol}`);
+      return [];
+    }
+
+    picked.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+
+    return picked.slice(0, 8).map((article, idx) => {
+      const articleId = `article_bi_${Date.now()}_${idx}`;
+
       articleStorage.set(articleId, {
         id: articleId,
-        title: article.headline,
-        source: article.source || 'Finnhub',
-        summary: article.summary || '',
-        content: article.summary || 'Read the full article from the source.',
-        sentiment: detectSentiment(article.headline + ' ' + (article.summary || '')),
-        publishedAt: new Date(article.datetime * 1000).toISOString(),
-        author: article.source || 'Finnhub',
+        title: article.title,
+        source: article.source,
+        summary: article.summary,
+        content: article.summary,
+        sentiment: detectSentiment(`${article.title} ${article.summary}`),
+        publishedAt: article.publishedAt,
+        author: article.source,
         originalUrl: article.url
       });
 
       return {
-        title: article.headline,
-        source: article.source || 'Finnhub News',
-        summary: article.summary || article.headline,
-        url: article.url, // Real link to article
-        sentiment: detectSentiment(article.headline + ' ' + (article.summary || '')),
+        title: article.title,
+        source: article.source,
+        summary: article.summary,
+        url: article.url,
+        sentiment: detectSentiment(`${article.title} ${article.summary}`),
         isFallback: false,
-        publishedAt: new Date(article.datetime * 1000).toISOString(),
-        articleId: articleId
+        publishedAt: article.publishedAt,
+        articleId
       };
     });
   } catch (error) {
-    console.log(`[NEWS] Finnhub fetch failed: ${error.message}`);
+    console.log(`[NEWS] Berita Indo fetch failed: ${error.message}`);
     return [];
   }
-}
-
-/**
- * Fetch from NewsAPI.org - comprehensive global news
- * https://newsapi.org
- */
-async function fetchFromNewsAPI(symbol) {
-  try {
-    const aliases = COMPANY_ALIASES[symbol] || [];
-    const queries = [symbol, ...aliases].filter(Boolean).slice(0, 3);
-
-    for (const query of queries) {
-      try {
-        const response = await axios.get('https://newsapi.org/v2/everything', {
-          params: {
-            q: query,
-            sortBy: 'publishedAt',
-            language: 'en',
-            pageSize: 10,
-            apiKey: NEWS_API_KEY
-          },
-          timeout: 8000
-        });
-
-        if (response.data.articles && response.data.articles.length > 0) {
-          return response.data.articles.slice(0, 8).map((article, idx) => {
-            const articleId = `article_na_${Date.now()}_${idx}`;
-
-            // Store full article with real URL
-            articleStorage.set(articleId, {
-              id: articleId,
-              title: article.title,
-              source: article.source.name || 'NewsAPI',
-              summary: article.description || '',
-              content: article.content || article.description || '',
-              sentiment: detectSentiment(article.title + ' ' + (article.description || '')),
-              publishedAt: article.publishedAt,
-              author: article.author || article.source.name || 'News',
-              originalUrl: article.url
-            });
-
-            return {
-              title: article.title,
-              source: article.source.name || 'NewsAPI',
-              summary: article.description || '',
-              url: article.url, // Real link to article
-              sentiment: detectSentiment(article.title + ' ' + (article.description || '')),
-              isFallback: false,
-              publishedAt: article.publishedAt,
-              articleId: articleId
-            };
-          });
-        }
-      } catch (err) {
-        console.log(`[NEWS] NewsAPI error for query "${query}": ${err.message}`);
-      }
-    }
-
-    return [];
-  } catch (error) {
-    console.log(`[NEWS] NewsAPI error: ${error.message}`);
-    return [];
-  }
-}
-
-/**
- * Generic market news fallback - Indonesian focused news + Global context mix
- * Focus: Indonesia financial news with international market insights
- */
-function getGenericMarketNews() {
-  const indonesianNews = [
-    // Indonesian stocks & economy
-    {
-      title: 'Indeks Harga Saham Gabungan Menutup Positif Didukung Sektor Finansial',
-      source: 'Kontan.co.id',
-      summary: 'IHSG menguat dengan dukungan dari saham-saham sektor perbankan yang mencatat kinerja baik',
-      url: 'https://kontan.co.id/berita/pasar-modal',
-      sentiment: 'positif'
-    },
-    {
-      title: 'Bank Indonesia Pertahankan Suku Bunga Acuan di Level 5,75%',
-      source: 'Bisnis.com',
-      summary: 'Rapat Dewan Gubernur BI mengambil keputusan mempertahankan suku bunga acuan pada level yang sama',
-      url: 'https://bisnis.com/read/20260329/90/bi-suku-bunga',
-      sentiment: 'netral'
-    },
-    {
-      title: 'Rupiah Stabil di Level Rp 15.400-15.500 per Dolar AS',
-      source: 'Market.Bisnis.com',
-      summary: 'Mata uang rupiah menunjukkan stabilitas dengan perdagangan di area Rp 15.400-15.500 per dolar',
-      url: 'https://market.bisnis.com/read/20260329/kurs-rupiah',
-      sentiment: 'netral'
-    },
-    {
-      title: 'Sektor Energi Indonesia Optimis Permintaan Global Terus Membaik',
-      source: 'Investor.id',
-      summary: 'Industri energi Indonesia yakin permintaan global akan terus meningkat seiring pemulihan ekonomi dunia',
-      url: 'https://investor.id/markets/sektor-energi',
-      sentiment: 'optimis'
-    },
-    {
-      title: 'Industri Telekomunikasi Indonesia Ditargetkan Tumbuh 8% di 2026',
-      source: 'CNBC Indonesia',
-      summary: 'Asosiasi industri telekomunikasi memprediksi pertumbuhan sektor mencapai 8% tahun ini ditopang digitalisasi',
-      url: 'https://www.cnbcindonesia.com/tech/20260329/telekomindo',
-      sentiment: 'positif'
-    },
-    {
-      title: 'Perusahaan Migas Indonesia Tingkatkan Investasi di Energi Terbarukan',
-      source: 'Kontan.co.id',
-      summary: 'Perusahaan-perusahaan migas mulai mengalihkan fokus investasi ke energi terbarukan untuk keberlanjutan',
-      url: 'https://kontan.co.id/berita/energi-terbarukan',
-      sentiment: 'positif'
-    },
-    {
-      title: 'Properti Komersial Jakarta Alami Peningkatan Permintaan Investor Asing',
-      source: 'Bisnis.com',
-      summary: 'Permintaan properti komersial di Jakarta meningkat dengan semakin banyaknya investor asing tertarik',
-      url: 'https://bisnis.com/read/20260329/properti-jakarta',
-      sentiment: 'positif'
-    },
-    {
-      title: 'Ekspor Produk Indonesia ke ASEAN Meningkat 12% Year-on-Year',
-      source: 'Investor.id',
-      summary: 'Ekspor ke negara-negara ASEAN menunjukkan pertumbuhan positif mencapai 12% dibanding periode tahun lalu',
-      url: 'https://investor.id/markets/ekspor-asean',
-      sentiment: 'positif'
-    },
-    {
-      title: 'Pasar Global Stabil, Investasi ke Indonesia Terus Mengalir Positif',
-      source: 'Market.Bisnis.com',
-      summary: 'Meskipun pasar global berfluktuasi, investasi asing ke Indonesia tetap kuat dan konsisten',
-      url: 'https://market.bisnis.com/read/20260329/investasi-asing',
-      sentiment: 'positif'
-    },
-    {
-      title: 'Rupiah Dipengaruhi Dinamika Suku Bunga dan Kondisi Ekonomi Global',
-      source: 'CNBC Indonesia',
-      summary: 'Pergerakan rupiah terhadap dolar terus dipengaruhi oleh perkembangan suku bunga dan ekonomi global',
-      url: 'https://www.cnbcindonesia.com/market/kurs-rupiah-global',
-      sentiment: 'netral'
-    }
-  ];
-
-  return indonesianNews.map((news, idx) => {
-    const articleId = `article_idn_${Date.now()}_${idx}`;
-
-    // Store for read endpoint
-    articleStorage.set(articleId, {
-      id: articleId,
-      title: news.title,
-      source: news.source,
-      summary: news.summary,
-      content: `${news.title}\n\n${news.summary}\n\nSumber: ${news.url}`,
-      sentiment: news.sentiment,
-      publishedAt: new Date().toISOString(),
-      author: news.source,
-      originalUrl: news.url
-    });
-
-    return {
-      title: news.title,
-      source: news.source,
-      summary: news.summary,
-      url: news.url, // Real Indonesia news portal link
-      sentiment: news.sentiment,
-      isFallback: true,
-      publishedAt: new Date().toISOString(),
-      articleId: articleId
-    };
-  });
 }
 
 /**

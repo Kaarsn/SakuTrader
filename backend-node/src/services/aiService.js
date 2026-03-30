@@ -4,6 +4,8 @@ const client = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null;
 
+const AI_REQUEST_TIMEOUT_MS = 4500;
+
 function fallbackSentiment(newsItems) {
   if (!newsItems.length) return 'Neutral';
   const text = newsItems.map((n) => `${n.title} ${n.summary}`).join(' ').toLowerCase();
@@ -65,64 +67,7 @@ function buildLogicalConclusion({ ticker, technical, sentiment }) {
   return `Kesimpulan ${ticker}: ${trendText} ${signalText} ${sentimentText} ${action}`;
 }
 
-function extractNewsDrivers(news) {
-  if (!news || news.length === 0) return [];
-  
-  // Only process real news, skip fallback news
-  const realNews = news.filter(n => !n.isFallback);
-  if (realNews.length === 0) return [];
-  
-  const drivers = [];
-  const positiveKeywords = ['naik', 'up', 'gain', 'profit', 'laba', 'revenue', 'growth', 'kuat', 'strong', 
-                           'dapat', 'dapat kontrak', 'memenangkan', 'beli', 'akuisisi', 'merger', 
-                           'laporan', 'dividend', 'ekspansi', 'pembukaan', 'baru', 'penemuan', 
-                           'cadangan', 'temuan', 'menemukan', 'sukses', 'mencatat', 'rekor'];
-  const negativeKeywords = ['turun', 'down', 'loss', 'rugi', 'kerugian', 'menurun', 'decline', 
-                           'penutupan', 'shutdown', 'banjir', 'bencana', 'krisis', 'anjlok', 
-                           'denda', 'penalti', 'henti', 'berhenti', 'kegagalan', 'gagal', 
-                           'undur', 'kurangi', 'setback', 'masalah'];
-  
-  realNews.slice(0, 5).forEach(item => {
-    const textLower = `${item.title} ${item.summary}`.toLowerCase();
-    
-    // Extract key business drivers
-    if (textLower.includes('cadangan') || textLower.includes('minyak') || textLower.includes('gas')) {
-      drivers.push({ type: 'resource', direction: 'positive', text: 'penemuan cadangan energi/mineral' });
-    }
-    if (textLower.includes('merger') || textLower.includes('akuisisi') || textLower.includes('diakuisisi')) {
-      drivers.push({ type: 'corporate', direction: 'positive', text: 'aktivitas merger/akuisisi' });
-    }
-    if (textLower.includes('dividend') || textLower.includes('dividen')) {
-      drivers.push({ type: 'distribution', direction: 'positive', text: 'pengumuman dividen/distribusi' });
-    }
-    if (textLower.includes('laporan') && (textLower.includes('keuangan') || textLower.includes('earnings') || textLower.includes('qtr'))) {
-      drivers.push({ type: 'financial', direction: 'neutral', text: 'rilis laporan keuangan' });
-    }
-    if (textLower.includes('ekspansi') || textLower.includes('pembukaan') || textLower.includes('baru')) {
-      drivers.push({ type: 'expansion', direction: 'positive', text: 'rencana ekspansi/pembukaan cabang' });
-    }
-    if (textLower.includes('denda') || textLower.includes('penalti')) {
-      drivers.push({ type: 'legal', direction: 'negative', text: 'penjatuhan denda/penalti' });
-    }
-    if (textLower.includes('shutdown') || textLower.includes('penutupan')) {
-      drivers.push({ type: 'operational', direction: 'negative', text: 'penutupan operasi' });
-    }
-    if (textLower.includes('kuat') || textLower.includes('strong') || textLower.includes('positif')) {
-      if (!drivers.some(d => d.text.includes('positif'))) {
-        drivers.push({ type: 'sentiment', direction: 'positive', text: 'sentimen pasar positif/optimis' });
-      }
-    }
-    if (textLower.includes('lemah') || textLower.includes('weak') || textLower.includes('negatif')) {
-      if (!drivers.some(d => d.text.includes('negatif'))) {
-        drivers.push({ type: 'sentiment', direction: 'negative', text: 'sentimen pasar negatif/pesimis' });
-      }
-    }
-  });
-  
-  return drivers.length > 0 ? drivers : [];
-}
-
-function buildPriceMovementCauses({ technical, news, priceChangePct }) {
+function buildPriceMovementCauses({ ticker, technical, priceChangePct }) {
   const candles = technical?.candles || [];
   const latest = candles[candles.length - 1];
   const previous = candles[candles.length - 2];
@@ -132,68 +77,67 @@ function buildPriceMovementCauses({ technical, news, priceChangePct }) {
   const volume = latest?.volume || 0;
   const previousVolume = previous?.volume || 0;
   const volumeIncrease = previousVolume > 0 ? (volume / previousVolume - 1) * 100 : 0;
-  
+
   const causes = [];
-  const newsDrivers = extractNewsDrivers(news);
-  
-  if (Math.abs(priceChangePct) > 0.5) {
-    if (priceChangePct > 0) {
-      causes.push(`Kenaikan ${priceChangePct.toFixed(2)}% dipicu oleh`);
-    } else {
-      causes.push(`Penurunan ${Math.abs(priceChangePct).toFixed(2)}% dipicu oleh`);
-    }
+
+  const movementPhrase = priceChangePct > 0.5
+    ? 'naik'
+    : priceChangePct < -0.5
+      ? 'turun'
+      : 'bergerak terbatas';
+
+  const movementDetail = priceChangePct > 0.5
+    ? `sekitar ${priceChangePct.toFixed(2)}%`
+    : priceChangePct < -0.5
+      ? `sekitar ${Math.abs(priceChangePct).toFixed(2)}%`
+      : `di kisaran ${priceChangePct.toFixed(2)}%`;
+
+  causes.push(`${ticker} ${movementPhrase} ${movementDetail} berdasarkan pergerakan harga dan indikator teknikal intraday.`);
+
+  if (volumeIncrease > 20) {
+    causes.push(`Volume transaksi naik ${volumeIncrease.toFixed(0)}% dibanding candle sebelumnya, menandakan peningkatan tekanan transaksi.`);
+  } else if (volumeIncrease < -20) {
+    causes.push(`Volume transaksi turun ${Math.abs(volumeIncrease).toFixed(0)}% dibanding candle sebelumnya, menandakan momentum melemah.`);
   }
-  
-  // Prioritize news drivers if available and match direction
-  const relevantNewsDrivers = newsDrivers.filter(driver => {
-    if (priceChangePct > 1 && driver.direction === 'positive') return true;
-    if (priceChangePct < -1 && driver.direction === 'negative') return true;
-    if (Math.abs(priceChangePct) <= 1 && driver.direction === 'neutral') return true;
-    return false;
-  });
-  
-  if (relevantNewsDrivers.length > 0) {
-    // Add primary news driver
-    causes.push(`${relevantNewsDrivers[0].text}`);
-    
-    // Add supporting news drivers if any
-    if (relevantNewsDrivers.length > 1) {
-      causes.push(`juga dipengaruhi oleh ${relevantNewsDrivers.slice(1, 2).map(d => d.text).join(', ')}`);
-    }
-  } else {
-    // Fallback to technical factors if no relevant news drivers
-    if (volumeIncrease > 20) {
-      causes.push(`volume transaksi melonjak (${volumeIncrease.toFixed(0)}%)`);
-    }
-    
-    if (rsiSignal === 'overbought' && priceChangePct > 0) {
-      causes.push('momentum beli kuat namun RSI overbought');
-    }
-    if (rsiSignal === 'oversold' && priceChangePct < 0) {
-      causes.push('tekanan jual menciptakan RSI oversold');
-    }
+
+  if (rsiSignal === 'overbought' && priceChangePct > 0) {
+    causes.push('RSI berada di area overbought sehingga kenaikan rawan pullback jangka pendek.');
   }
-  
-  // Add technical context if not already covered by news
-  if (relevantNewsDrivers.length === 0 || Math.abs(priceChangePct) > 3) {
-    if (trendSignal === 'downtrend' && priceChangePct < 0) {
-      causes.push('produk masih dalam struktur downtrend');
-    }
-    if (trendSignal === 'uptrend' && priceChangePct > 0) {
-      causes.push('produk masih dalam momentum uptrend');
-    }
+  if (rsiSignal === 'oversold' && priceChangePct < 0) {
+    causes.push('RSI berada di area oversold sehingga tekanan jual tergolong tinggi.');
   }
-  
-  // Add top news as reference only if real news exists
-  if (news && news.length > 0) {
-    const topNews = news[0];
-    // Only add berita reference if it's not a generic/fallback news
-    if (!topNews.isFallback) {
-      causes.push(`📰 Berita: ${topNews.title.substring(0, 70)}${topNews.title.length > 70 ? '...' : ''}`);
-    }
+
+  if (trendSignal === 'downtrend' && priceChangePct < 0) {
+    causes.push('Struktur trend saat ini masih downtrend, sehingga bias harga tetap tertekan.');
   }
-  
+  if (trendSignal === 'uptrend' && priceChangePct > 0) {
+    causes.push('Struktur trend saat ini masih uptrend, sehingga bias kenaikan tetap terjaga.');
+  }
+
+  const macdSignal = technical?.signals?.macdSignal || 'neutral';
+  if (macdSignal === 'bullish') {
+    causes.push('MACD bullish mendukung momentum kenaikan bertahap.');
+  } else if (macdSignal === 'bearish') {
+    causes.push('MACD bearish menunjukkan momentum pelemahan masih dominan.');
+  }
+
   return causes.length > 0 ? causes.join('; ') : 'Pergerakan normal dalam range trading historis.';
+}
+
+function buildTopNewsSelection(news = [], maxItems = 5) {
+  const realNews = (news || []).filter((item) => !item?.isFallback);
+  const sourceSeen = new Set();
+  const selected = [];
+
+  for (const item of realNews) {
+    const sourceKey = String(item?.source || '').toLowerCase();
+    if (!sourceKey || sourceSeen.has(sourceKey)) continue;
+    selected.push(item);
+    sourceSeen.add(sourceKey);
+    if (selected.length >= maxItems) break;
+  }
+  // Keep source diversity strict: no duplicate source filler.
+  return selected;
 }
 
 function buildOutlook({ technical, sentiment, priceChangePct }) {
@@ -269,7 +213,7 @@ function buildMediumOutlook({ technical, sentiment, recommendation = 'HOLD' }) {
   return neutralText;
 }
 
-export async function generateAiInsight({ ticker, technical, news, priceChangePct = 0 }) {
+export async function generateAiInsight({ ticker, technical, news, priceChangePct = 0, ihsgChangePct }) {
   const inferRecommendation = () => {
     const trendSignal = technical?.signals?.trendSignal || 'downtrend';
     const macdSignal = technical?.signals?.macdSignal || 'bearish';
@@ -283,8 +227,8 @@ export async function generateAiInsight({ ticker, technical, news, priceChangePc
   const fallbackInsight = (sentiment) => ({
     sentiment,
     insight: buildLogicalConclusion({ ticker, technical, sentiment }),
-    causes: buildPriceMovementCauses({ technical, news, priceChangePct }),
-    topNews: (news || []).slice(0, 3),
+    causes: buildPriceMovementCauses({ ticker, technical, priceChangePct }),
+    topNews: buildTopNewsSelection(news, 5),
     outlook: buildOutlook({ technical, sentiment, priceChangePct }),
     mediumOutlook: buildMediumOutlook({ technical, sentiment, recommendation: inferRecommendation() })
   });
@@ -298,6 +242,7 @@ export async function generateAiInsight({ ticker, technical, news, priceChangePc
     `You are an equity analyst focused on Indonesian equities listed on IDX/BEI.`,
     `Ticker: ${ticker}`,
     `Price change today: ${priceChangePct.toFixed(2)}%`,
+    `IHSG change today: ${Number.isFinite(ihsgChangePct) ? ihsgChangePct.toFixed(2) : 'N/A'}%`,
     `Technical data: ${JSON.stringify(technical.signals)}`,
     `Indicators: RSI=${technical.indicators.rsi}, MACD=${technical.indicators.macd}, MA20=${technical.indicators.ma20}, MA50=${technical.indicators.ma50}`,
     `News: ${JSON.stringify(news)}`,
@@ -309,22 +254,27 @@ export async function generateAiInsight({ ticker, technical, news, priceChangePc
   ].join('\n');
 
   try {
-    const completion = await client.chat.completions.create({
-      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: 'Respond only in JSON.' },
-        { role: 'user', content: prompt }
-      ],
-      temperature: 0.2
-    });
+    const completion = await Promise.race([
+      client.chat.completions.create({
+        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: 'Respond only in JSON.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.2
+      }),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('AI insight timeout')), AI_REQUEST_TIMEOUT_MS);
+      })
+    ]);
 
     const raw = completion.choices?.[0]?.message?.content || '{}';
     const parsed = JSON.parse(raw);
 
     const sentiment = normalizeSentiment(parsed.sentiment || 'Neutral');
     const insight = parsed.insight || buildLogicalConclusion({ ticker, technical, sentiment });
-    const causes = parsed.causes || buildPriceMovementCauses({ technical, news, priceChangePct });
+    const causes = buildPriceMovementCauses({ ticker, technical, priceChangePct });
     const outlook = parsed.outlook || buildOutlook({ technical, sentiment, priceChangePct });
     const mediumOutlook = parsed.mediumOutlook || parsed.outlook1To3Months || buildMediumOutlook({ technical, sentiment, recommendation: parsed.verdict || 'HOLD' });
 
@@ -332,7 +282,7 @@ export async function generateAiInsight({ ticker, technical, news, priceChangePc
       sentiment,
       insight,
       causes,
-      topNews: (news || []).slice(0, 3),
+      topNews: buildTopNewsSelection(news, 5),
       outlook,
       mediumOutlook
     };

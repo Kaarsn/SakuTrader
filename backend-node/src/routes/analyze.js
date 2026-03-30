@@ -377,7 +377,7 @@ function buildWindowAiInsight({ technical, indicatorStatus, conclusion }) {
   };
 }
 
-async function analyzeOneTicker(ticker, timeframe, strategyPreset) {
+async function analyzeOneTicker(ticker, timeframe, strategyPreset, marketContext = {}) {
   const period = mapTimeframeToPeriod(timeframe);
   const cleanTicker = normalizeIdxTicker(ticker);
   const displayTicker = cleanTicker.replace(/\.JK$/i, '');
@@ -450,7 +450,8 @@ async function analyzeOneTicker(ticker, timeframe, strategyPreset) {
     ticker: displayTicker,
     technical,
     news,
-    priceChangePct: displayChangePct || 0
+    priceChangePct: displayChangePct || 0,
+    ihsgChangePct: marketContext?.ihsgChangePct
   });
 
   const recommendation = buildRecommendation({
@@ -529,10 +530,15 @@ router.post('/', async (req, res, next) => {
       return res.json({ ...cached, cached: true });
     }
 
+    const ihsgLive = await fetchLiveQuote('^JKSE').catch(() => null);
+    const marketContext = {
+      ihsgChangePct: typeof ihsgLive?.changePct === 'number' ? ihsgLive.changePct : undefined
+    };
+
     const results = [];
     for (const ticker of normalizedTickers) {
       try {
-        const item = await analyzeOneTicker(ticker, timeframe, strategyPreset);
+        const item = await analyzeOneTicker(ticker, timeframe, strategyPreset, marketContext);
         results.push(item);
       } catch (error) {
         const displayTicker = ticker.replace(/\.JK$/i, '');
