@@ -1,7 +1,6 @@
 import express from 'express';
 import { Parser } from 'json2csv';
 import { fetchTechnicalAnalysis } from '../services/pythonClient.js';
-import { fetchNewsForTicker } from '../services/newsService.js';
 import { generateAiInsight } from '../services/aiService.js';
 import { fetchLiveQuote, isIdxMarketOpen } from '../services/liveMarketService.js';
 import { analysisCache, makeCacheKey } from '../services/cache.js';
@@ -445,7 +444,7 @@ async function analyzeOneTicker(ticker, timeframe, strategyPreset, marketContext
 
   const displayPrice = typeof live?.price === 'number' ? live.price : latestPrice;
   const displayChangePct = typeof live?.changePct === 'number' ? live.changePct : priceChangePct;
-  const news = await fetchNewsForTicker(cleanTicker);
+  const news = [];
   const ai = await generateAiInsight({
     ticker: displayTicker,
     technical,
