@@ -7,16 +7,47 @@ type IhsgChartProps = {
   refreshIntervalSeconds?: number;
 };
 
-export default function IhsgChart({ refreshIntervalSeconds = 60 }: IhsgChartProps) {
+function getSessionInfo() {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Jakarta',
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit'
+  }).formatToParts(now);
+
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value || '0');
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value || '0');
+  const minuteOfDay = hour * 60 + minute;
+
+  const session1Start = 9 * 60; // 09:00
+  const session1End = 12 * 60; // 12:00
+  const session2Start = 13 * 60 + 30; // 13:30
+  const session2End = 16 * 60; // 16:00
+
+  if (minuteOfDay >= session1Start && minuteOfDay < session1End) {
+    const timeLeft = session1End - minuteOfDay;
+    return { session: 'Session 1', timeLeft: `${timeLeft}m left`, active: true };
+  }
+  if (minuteOfDay >= session2Start && minuteOfDay < session2End) {
+    const timeLeft = session2End - minuteOfDay;
+    return { session: 'Session 2', timeLeft: `${timeLeft}m left`, active: true };
+  }
+  return { session: 'Market Closed', timeLeft: 'N/A', active: false };
+}
+
+export default function IhsgChart({ refreshIntervalSeconds = 1 }: IhsgChartProps) {
   const [ihsg, setIhsg] = useState<IhsgData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessionInfo, setSessionInfo] = useState(getSessionInfo());
 
   const fetchIhsg = async () => {
     try {
       setLoading(true);
       const data = await requestIhsg();
       setIhsg(data);
+      setSessionInfo(getSessionInfo());
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load IHSG');
@@ -50,9 +81,15 @@ export default function IhsgChart({ refreshIntervalSeconds = 60 }: IhsgChartProp
   return (
     <div className="ihsg-card">
       <div className="ihsg-header">
-        <h3>IHSG</h3>
-        <span className={`ihsg-status ${ihsg.marketOpen ? 'open' : 'closed'}`}>
-          {ihsg.marketOpen ? '🟢' : '🔴'}
+        <div>
+          <h3>IHSG</h3>
+          <p style={{ margin: '2px 0 0 0', fontSize: '11px', color: 'var(--ink-soft)', fontWeight: '500' }}>
+            {sessionInfo.session}
+            {sessionInfo.active && <span style={{ marginLeft: '6px' }}>({sessionInfo.timeLeft})</span>}
+          </p>
+        </div>
+        <span className={`ihsg-status ${sessionInfo.active ? 'open' : 'closed'}`}>
+          {sessionInfo.active ? '🟢' : '🔴'}
         </span>
       </div>
 

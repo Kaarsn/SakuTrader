@@ -1041,7 +1041,7 @@ export default function Dashboard() {
                   <div style={{ flex: '0.8', minWidth: '220px' }}>
                     <div className="ihsg-card-compact">
                       <h3 style={{ margin: '0 0 8px 0', fontSize: '14px' }}>Index Monitor</h3>
-                      <IhsgChart refreshIntervalSeconds={60} />
+                      <IhsgChart refreshIntervalSeconds={1} />
                     </div>
                   </div>
 
