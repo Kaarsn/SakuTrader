@@ -75,6 +75,28 @@ function roundIdr(value) {
   return Math.round(value);
 }
 
+function getIdxTickSize(price) {
+  if (!Number.isFinite(price) || price <= 0) return 1;
+  if (price < 200) return 1;
+  if (price < 500) return 2;
+  if (price < 2000) return 5;
+  if (price < 5000) return 10;
+  return 25;
+}
+
+function alignToTick(value, tickSize, mode = 'round') {
+  if (!Number.isFinite(value)) return null;
+  const tick = Math.max(1, Number(tickSize) || 1);
+
+  if (mode === 'floor') {
+    return Math.floor(value / tick) * tick;
+  }
+  if (mode === 'ceil') {
+    return Math.ceil(value / tick) * tick;
+  }
+  return Math.round(value / tick) * tick;
+}
+
 const STRATEGY_PRESETS = {
   scalp: {
     entryBandPct: 0.0015,
@@ -165,20 +187,24 @@ export function buildTradePlan({ latestPrice, recommendation, analysis, strategy
     profile.takeProfitMin,
     profile.takeProfitMax
   );
+  const tickSize = getIdxTickSize(latestPrice);
 
-  const entryLow = roundIdr(latestPrice * (1 - profile.entryBandPct));
-  const entryHigh = roundIdr(latestPrice * (1 + profile.entryBandPct));
+  let entryLow = alignToTick(latestPrice * (1 - profile.entryBandPct), tickSize, 'floor');
+  let entryHigh = alignToTick(latestPrice * (1 + profile.entryBandPct), tickSize, 'ceil');
+  if (entryHigh <= entryLow) {
+    entryHigh = entryLow + tickSize;
+  }
 
-  const cutLoss = roundIdr(latestPrice * (1 - stopLossPct / 100));
-  const takeProfit1 = roundIdr(latestPrice * (1 + takeProfitPct / 100));
-  const takeProfit2 = roundIdr(latestPrice * (1 + (takeProfitPct + profile.tp2AddonPct) / 100));
+  const cutLoss = alignToTick(latestPrice * (1 - stopLossPct / 100), tickSize, 'floor');
+  const takeProfit1 = alignToTick(latestPrice * (1 + takeProfitPct / 100), tickSize, 'ceil');
+  const takeProfit2 = alignToTick(latestPrice * (1 + (takeProfitPct + profile.tp2AddonPct) / 100), tickSize, 'ceil');
 
   if (recommendation === 'SELL') {
     return {
       strategy: 'protect-capital',
       profile: profileName,
       entryZone: null,
-      cutLoss: roundIdr(latestPrice),
+      cutLoss: alignToTick(latestPrice, tickSize, 'round'),
       takeProfit1: null,
       takeProfit2: null,
       stopLossPct: Number(stopLossPct.toFixed(2)),
