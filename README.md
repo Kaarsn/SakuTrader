@@ -1,4 +1,4 @@
-# IDX AI Analyst Platform
+# SAKUTRADER
 
 Platform analisis saham BEI/IDX berbasis web + desktop untuk screening multi-ticker, analisis teknikal, rekomendasi aksi, dan trade plan otomatis.
 
@@ -8,6 +8,7 @@ Dashboard analisis saham BEI berbasis Next.js + Node.js + FastAPI untuk multi-ti
 
 ## Fitur Utama
 
+- IDX AI Analyst Platform
 - Input multi ticker (contoh: `BBRI`, `TLKM`, `BUMI`).
 - Normalisasi ticker IDX otomatis (`BBRI` -> `BBRI.JK`).
 - Analisis teknikal: RSI, MACD, MA20, MA50, volume, trend.
