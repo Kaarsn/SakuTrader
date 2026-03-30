@@ -38,7 +38,7 @@ type TradeJournalEntry = {
 };
 
 const LIVE_REFRESH_SECONDS = 5;
-const MARKET_RANK_REFRESH_MS = 1000;
+const MARKET_RANK_REFRESH_MS = 5000;
 const WATCHLIST_STORAGE_KEY = 'sakutrader-watchlist';
 const ALERTS_STORAGE_KEY = 'sakutrader-alerts';
 const JOURNAL_STORAGE_KEY = 'sakutrader-journal';
