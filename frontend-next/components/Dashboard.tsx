@@ -3,6 +3,7 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import RecommendationBadge from './RecommendationBadge';
 import StockCharts from './StockCharts';
+import IhsgChart from './IhsgChart';
 import {
   AnalysisResponse,
   MarketRankResponse,
@@ -923,6 +924,11 @@ export default function Dashboard() {
           <button className="ghost" disabled={!data} onClick={() => handleExport('csv')}>
             Export CSV
           </button>
+        </section>
+
+        <section className="panel ihsg-panel retro-window">
+          <WindowTitle title="Index Monitor" />
+          <IhsgChart refreshIntervalSeconds={60} />
         </section>
 
         <div style={{ display: 'flex', gap: '16px', height: '420px', width: '100%' }}>
