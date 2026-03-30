@@ -3,7 +3,6 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import RecommendationBadge from './RecommendationBadge';
 import StockCharts from './StockCharts';
-import IhsgChart from './IhsgChart';
 import {
   AnalysisResponse,
   MarketRankResponse,
@@ -260,7 +259,7 @@ export default function Dashboard() {
     minute: '2-digit',
     second: '2-digit'
   }), [rankNow]);
-  const isIdxMarketOpenNow = useMemo(() => {
+  const marketSessionInfo = useMemo(() => {
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: 'Asia/Jakarta',
       weekday: 'short',
@@ -274,22 +273,55 @@ export default function Dashboard() {
     const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? '0');
     const minuteOfDay = hour * 60 + minute;
 
-    const inRange = (startHour: number, startMinute: number, endHour: number, endMinute: number) => {
-      const start = startHour * 60 + startMinute;
-      const end = endHour * 60 + endMinute;
-      return minuteOfDay >= start && minuteOfDay <= end;
-    };
-
     if (weekday === 'Mon' || weekday === 'Tue' || weekday === 'Wed' || weekday === 'Thu') {
-      return inRange(9, 0, 12, 0) || inRange(13, 30, 15, 49);
+      const s1Start = 9 * 60;
+      const s1End = 12 * 60;
+      const s2Start = (13 * 60) + 30;
+      const s2End = (15 * 60) + 49;
+
+      if (minuteOfDay >= s1Start && minuteOfDay <= s1End) {
+        return {
+          isOpen: true,
+          sessionLabel: 'Session 1',
+          remainingMinutes: Math.max(0, s1End - minuteOfDay)
+        };
+      }
+      if (minuteOfDay >= s2Start && minuteOfDay <= s2End) {
+        return {
+          isOpen: true,
+          sessionLabel: 'Session 2',
+          remainingMinutes: Math.max(0, s2End - minuteOfDay)
+        };
+      }
+      return { isOpen: false, sessionLabel: 'Market Closed', remainingMinutes: 0 };
     }
 
     if (weekday === 'Fri') {
-      return inRange(9, 0, 11, 30) || inRange(14, 0, 15, 49);
+      const s1Start = 9 * 60;
+      const s1End = (11 * 60) + 30;
+      const s2Start = 14 * 60;
+      const s2End = (15 * 60) + 49;
+
+      if (minuteOfDay >= s1Start && minuteOfDay <= s1End) {
+        return {
+          isOpen: true,
+          sessionLabel: 'Session 1',
+          remainingMinutes: Math.max(0, s1End - minuteOfDay)
+        };
+      }
+      if (minuteOfDay >= s2Start && minuteOfDay <= s2End) {
+        return {
+          isOpen: true,
+          sessionLabel: 'Session 2',
+          remainingMinutes: Math.max(0, s2End - minuteOfDay)
+        };
+      }
+      return { isOpen: false, sessionLabel: 'Market Closed', remainingMinutes: 0 };
     }
 
-    return false;
+    return { isOpen: false, sessionLabel: 'Market Closed', remainingMinutes: 0 };
   }, [rankNow]);
+  const isIdxMarketOpenNow = marketSessionInfo.isOpen;
 
   const mediumTermOutlook = useMemo(() => {
     if (!selectedStock || selectedStock.error) return '-';
@@ -1004,6 +1036,10 @@ export default function Dashboard() {
               Status: {isIdxMarketOpenNow ? 'Market Open' : 'Market Closed'}
               {' • Sampled: '}{marketRank?.sampled ?? 0}/{marketRank?.universeSize ?? 100}
             </p>
+            <p className="helper-text" style={{ fontSize: '0.75rem', margin: '0 0 6px 0' }}>
+              Session: {marketSessionInfo.sessionLabel}
+              {marketSessionInfo.isOpen ? ` • ${marketSessionInfo.remainingMinutes} menit lagi selesai` : ''}
+            </p>
             <div className="list-scroll rank-scroll" style={{ maxHeight: '140px', marginBottom: '6px', overflowY: 'auto' }}>
               {topGainers.length ? topGainers.map((item) => (
                 <div className="list-row" key={`${item.ticker}-${item.rank}`} style={{ padding: '2px 0' }}>
@@ -1035,43 +1071,30 @@ export default function Dashboard() {
           <>
             {selectedStock && !selectedStock.error && decisionData ? (
               <section className="panel retro-window decision-intel-section">
-                <WindowTitle title="Quick Decision & Market Index" />
-                <div style={{ display: 'flex', gap: '16px', width: '100%' }}>
-                  {/* IHSG Monitor - Left */}
-                  <div style={{ flex: '0.8', minWidth: '220px' }}>
-                    <div className="ihsg-card-compact">
-                      <h3 style={{ margin: '0 0 8px 0', fontSize: '14px' }}>Index Monitor</h3>
-                      <IhsgChart refreshIntervalSeconds={1} />
-                    </div>
-                  </div>
+                <WindowTitle title="Quick Decision" />
+                <div className="quick-call-head">
+                  <p className="quick-one-line">{decisionData.oneLineInsight}</p>
+                  <span className={`quick-call-badge ${getQuickCallClass(decisionData.quickCall)}`}>{decisionData.quickCall}</span>
+                </div>
+                <p className="quick-call-reason">{decisionData.quickReason}</p>
 
-                  {/* Quick Call - Right */}
-                  <div style={{ flex: '1.2', minWidth: '300px' }}>
-                    <div className="quick-call-head">
-                      <p className="quick-one-line">{decisionData.oneLineInsight}</p>
-                      <span className={`quick-call-badge ${getQuickCallClass(decisionData.quickCall)}`}>{decisionData.quickCall}</span>
-                    </div>
-                    <p className="quick-call-reason">{decisionData.quickReason}</p>
-
-                    <div className="quick-metrics-grid">
-                      <article className="quick-metric-card">
-                        <p>Confidence Score</p>
-                        <strong>{decisionData.confidenceScore}%</strong>
-                      </article>
-                      <article className="quick-metric-card">
-                        <p>Risk Level</p>
-                        <strong>{decisionData.riskLevel}</strong>
-                      </article>
-                      <article className="quick-metric-card">
-                        <p>Bullish Probability</p>
-                        <strong className="good">{decisionData.bullishProbability}%</strong>
-                      </article>
-                      <article className="quick-metric-card">
-                        <p>Bearish Probability</p>
-                        <strong className="bad">{decisionData.bearishProbability}%</strong>
-                      </article>
-                    </div>
-                  </div>
+                <div className="quick-metrics-grid">
+                  <article className="quick-metric-card">
+                    <p>Confidence Score</p>
+                    <strong>{decisionData.confidenceScore}%</strong>
+                  </article>
+                  <article className="quick-metric-card">
+                    <p>Risk Level</p>
+                    <strong>{decisionData.riskLevel}</strong>
+                  </article>
+                  <article className="quick-metric-card">
+                    <p>Bullish Probability</p>
+                    <strong className="good">{decisionData.bullishProbability}%</strong>
+                  </article>
+                  <article className="quick-metric-card">
+                    <p>Bearish Probability</p>
+                    <strong className="bad">{decisionData.bearishProbability}%</strong>
+                  </article>
                 </div>
 
                 {/* Scenarios & Edge Indicators Below */}

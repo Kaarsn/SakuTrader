@@ -196,17 +196,6 @@ export type MarketRankResponse = {
   losers: MarketRankItem[];
 };
 
-export type IhsgData = {
-  ticker: string;
-  price: number | null;
-  previousClose?: number;
-  change?: number;
-  changePct: number;
-  asOf: string;
-  marketOpen: boolean;
-  error?: string;
-};
-
 // Lazily compute API base URL (evaluated at request time, not module load time)
 export function getApiBase(): string {
   // If explicitly set in env, use it
@@ -271,18 +260,6 @@ export async function requestMarketRank(limit = 100): Promise<MarketRankResponse
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.error || 'Failed to fetch market rank');
-  }
-
-  return response.json();
-}
-
-export async function requestIhsg(): Promise<IhsgData> {
-  const API_BASE = getApiBase();
-  const response = await fetch(`${API_BASE}/api/analysis/ihsg`);
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || 'Failed to fetch IHSG data');
   }
 
   return response.json();

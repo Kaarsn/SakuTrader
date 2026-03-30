@@ -624,24 +624,4 @@ router.post('/export', async (req, res, next) => {
   }
 });
 
-router.get('/ihsg', async (req, res, next) => {
-  try {
-    const live = await fetchLiveQuote('^JKSE');
-    if (!live) {
-      return res.json({ error: 'IHSG data not available', price: null, change: null, changePct: null });
-    }
-    return res.json({
-      ticker: 'IHSG',
-      price: live.price,
-      previousClose: live.previousClose,
-      change: live.price - (live.previousClose || live.price),
-      changePct: live.changePct,
-      asOf: live.asOf,
-      marketOpen: isIdxMarketOpen()
-    });
-  } catch (error) {
-    return next(error);
-  }
-});
-
 export default router;
