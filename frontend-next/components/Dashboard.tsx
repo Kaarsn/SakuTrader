@@ -926,11 +926,6 @@ export default function Dashboard() {
           </button>
         </section>
 
-        <section className="panel ihsg-panel retro-window">
-          <WindowTitle title="Index Monitor" />
-          <IhsgChart refreshIntervalSeconds={60} />
-        </section>
-
         <div style={{ display: 'flex', gap: '16px', height: '420px', width: '100%' }}>
           {/* TradingView Chart - Left */}
           <section className="panel tradingview-section retro-window" style={{ flex: '1.5', height: '100%' }}>
@@ -1039,34 +1034,48 @@ export default function Dashboard() {
         {data ? (
           <>
             {selectedStock && !selectedStock.error && decisionData ? (
-              <section className="panel retro-window quick-call-panel">
-                <WindowTitle title="Quick Call" />
-                <div className="quick-call-head">
-                  <p className="quick-one-line">{decisionData.oneLineInsight}</p>
-                  <span className={`quick-call-badge ${getQuickCallClass(decisionData.quickCall)}`}>{decisionData.quickCall}</span>
-                </div>
-                <p className="quick-call-reason">{decisionData.quickReason}</p>
+              <section className="panel retro-window decision-intel-section">
+                <WindowTitle title="Quick Decision & Market Index" />
+                <div style={{ display: 'flex', gap: '16px', width: '100%' }}>
+                  {/* IHSG Monitor - Left */}
+                  <div style={{ flex: '0.8', minWidth: '220px' }}>
+                    <div className="ihsg-card-compact">
+                      <h3 style={{ margin: '0 0 8px 0', fontSize: '14px' }}>Index Monitor</h3>
+                      <IhsgChart refreshIntervalSeconds={60} />
+                    </div>
+                  </div>
 
-                <div className="quick-metrics-grid">
-                  <article className="quick-metric-card">
-                    <p>Confidence Score</p>
-                    <strong>{decisionData.confidenceScore}%</strong>
-                  </article>
-                  <article className="quick-metric-card">
-                    <p>Risk Level</p>
-                    <strong>{decisionData.riskLevel}</strong>
-                  </article>
-                  <article className="quick-metric-card">
-                    <p>Bullish Probability</p>
-                    <strong className="good">{decisionData.bullishProbability}%</strong>
-                  </article>
-                  <article className="quick-metric-card">
-                    <p>Bearish Probability</p>
-                    <strong className="bad">{decisionData.bearishProbability}%</strong>
-                  </article>
+                  {/* Quick Call - Right */}
+                  <div style={{ flex: '1.2', minWidth: '300px' }}>
+                    <div className="quick-call-head">
+                      <p className="quick-one-line">{decisionData.oneLineInsight}</p>
+                      <span className={`quick-call-badge ${getQuickCallClass(decisionData.quickCall)}`}>{decisionData.quickCall}</span>
+                    </div>
+                    <p className="quick-call-reason">{decisionData.quickReason}</p>
+
+                    <div className="quick-metrics-grid">
+                      <article className="quick-metric-card">
+                        <p>Confidence Score</p>
+                        <strong>{decisionData.confidenceScore}%</strong>
+                      </article>
+                      <article className="quick-metric-card">
+                        <p>Risk Level</p>
+                        <strong>{decisionData.riskLevel}</strong>
+                      </article>
+                      <article className="quick-metric-card">
+                        <p>Bullish Probability</p>
+                        <strong className="good">{decisionData.bullishProbability}%</strong>
+                      </article>
+                      <article className="quick-metric-card">
+                        <p>Bearish Probability</p>
+                        <strong className="bad">{decisionData.bearishProbability}%</strong>
+                      </article>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="quick-next-grid">
+                {/* Scenarios & Edge Indicators Below */}
+                <div className="quick-next-grid" style={{ marginTop: '12px' }}>
                   <article className="quick-next-card">
                     <h3>What Happens Next</h3>
                     <ul>
@@ -1081,6 +1090,20 @@ export default function Dashboard() {
                     <p>Fake Breakout Detector: <strong>{decisionData.edgeIndicators.fakeBreakoutRisk}/100 risk</strong></p>
                     <p>Volume Spike Alert: <strong>{decisionData.edgeIndicators.volumeSpikeAlert ? 'ON' : 'OFF'}</strong></p>
                   </article>
+                </div>
+
+                {/* AI Disclaimer */}
+                <div style={{
+                  marginTop: '12px',
+                  padding: '10px',
+                  backgroundColor: 'rgba(244, 233, 91, 0.08)',
+                  border: '1px solid rgba(244, 233, 91, 0.3)',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  color: 'var(--ink-soft)',
+                  lineHeight: '1.4'
+                }}>
+                  <strong style={{ color: 'var(--ink)' }}>⚠️ Disclaimer:</strong> Quick Call ini adalah AI insight berdasarkan analisis teknikal semata. Keputusan investasi final sepenuhnya ada di tangan Anda. Selalu pertimbangkan fundamental, manajemen risiko, dan kondisi pasar sebelum mengambil keputusan.
                 </div>
               </section>
             ) : null}

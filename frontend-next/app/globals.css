@@ -1162,6 +1162,13 @@ body.app-dark {
   min-height: 140px;
 }
 
+.ihsg-card-compact {
+  padding: 8px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(47, 54, 67, 0.3);
+  border-radius: 10px;
+}
+
 .ihsg-card.loading {
   opacity: 0.6;
   position: relative;
@@ -1256,6 +1263,11 @@ body.app-dark {
   border-color: rgba(244, 233, 91, 0.2);
 }
 
+.theme-dark .ihsg-card-compact {
+  background: linear-gradient(135deg, rgba(79, 157, 245, 0.08) 0%, rgba(121, 217, 201, 0.05) 100%);
+  border-color: rgba(244, 233, 91, 0.2);
+}
+
 .theme-dark .ihsg-header h3 {
   color: var(--ink);
 }
@@ -1292,6 +1304,11 @@ body.app-dark {
   background: rgba(255, 107, 107, 0.1);
 }
 
+/* Decision Intelligence Section */
+.decision-intel-section {
+  margin-bottom: 16px;
+}
+
 @media (max-width: 768px) {
   .ihsg-panel {
     max-width: 100%;
@@ -1307,6 +1324,10 @@ body.app-dark {
 
   .ihsg-change {
     font-size: 16px;
+  }
+
+  .decision-intel-section > div {
+    flex-direction: column !important;
   }
 }
 
